@@ -66,7 +66,17 @@ test(
       logLevel: "silent",
     });
     const { BrowserBroker } = await import(pathToFileURL(bundled).href);
-    const broker = new BrowserBroker({ home: scratch, extensionId, bridgePort: 0 });
+    let processOwnership = false;
+    const broker = new BrowserBroker({
+      home: scratch,
+      extensionId,
+      bridgePort: 0,
+      // Deliberately injected process fixture. This does not prove real Snow ownership.
+      checkIsolated: async () => {
+        if (processOwnership instanceof Error) throw processOwnership;
+        return processOwnership;
+      },
+    });
     const sockets = [];
     try {
       await broker.init();
@@ -101,6 +111,30 @@ test(
         broker.call(creator, "browser_select", { mode: "reuse", instance_id: normal.instance_id }),
         /browser_finish/,
       );
+      const exited = peer(broker.bridge.port, record.launch_token);
+      sockets.push(exited.socket);
+      await assert.rejects(exited.ready, /1008/);
+      let failed = await broker.call(creator, "browser_status", {});
+      assert.equal(failed.selected, null, "a matching token cannot substitute for process ownership");
+      assert.equal(failed.pending_isolation.state, "launch_exited_unverified");
+      assert.equal(failed.pending_isolation.launch_process_running, false);
+      assert.equal(record.initialized, false);
+      processOwnership = new Error("fixture ownership query failed");
+      const unverified = peer(broker.bridge.port, record.launch_token);
+      sockets.push(unverified.socket);
+      await assert.rejects(unverified.ready, /1008/);
+      failed = await broker.call(creator, "browser_status", {});
+      assert.equal(failed.selected, null);
+      assert.equal(failed.pending_isolation.state, "launch_exited_unverified");
+      assert.equal(failed.pending_isolation.launch_process_running, false);
+      await broker.call(other, "browser_select", { mode: "reuse", instance_id: normal.instance_id });
+      assert.equal(
+        (await broker.call(other, "browser_status", {})).selected,
+        normal.instance_id,
+        "failed ownership queries must not prevent selecting other ordinary profiles",
+      );
+      processOwnership = true;
+      assert.equal((await broker.call(creator, "browser_status", {})).pending_isolation.state, "waiting_for_extension");
       const isolated = peer(broker.bridge.port, record.launch_token);
       sockets.push(isolated.socket);
       const first = await isolated.ready;
@@ -137,6 +171,15 @@ test(
         broker.call(other, "browser_finish", { close_and_cleanup: true, confirmed_by_user: true }),
         /did not create/,
       );
+      processOwnership = false;
+      await assert.rejects(broker.call(other, "browser_tabs", {}), /no page operation|ownership/i);
+      assert.equal(
+        broker.instances.has(fresh.instance_id),
+        false,
+        "an extension that outlives its verified isolated process must be detached before page commands",
+      );
+      assert.equal(broker.instances.has(normal.instance_id), true, "ordinary instances must remain connected");
+      processOwnership = true;
       await broker.call(other, "browser_finish", { close_and_cleanup: false, confirmed_by_user: true });
       await broker.call(creator, "browser_select", { mode: "reuse", instance_id: normal.instance_id });
       assert.equal((await broker.call(creator, "browser_status", {})).selected, normal.instance_id);

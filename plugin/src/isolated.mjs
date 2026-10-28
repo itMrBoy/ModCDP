@@ -47,37 +47,84 @@ export async function launchIsolated(home, instanceId, executable, startupUrl = 
   return { record, proc };
 }
 
-export async function cleanIsolated(home, record) {
-  const base = await realpath(path.join(home, "profiles"));
+async function ownedProfile(record, home) {
+  if (!record || !path.isAbsolute(record.profile ?? "") || !path.isAbsolute(record.executable ?? ""))
+    throw new Error("Missing isolated profile or executable ownership information.");
+  const base = await realpath(home ? path.join(home, "profiles") : path.dirname(record.profile));
   const profile = await realpath(record.profile);
-  if (path.dirname(profile) !== base || !path.basename(profile).startsWith("isolated-"))
-    throw new Error("Refusing cleanup outside the owned profile directory.");
+  if (
+    path.dirname(profile) !== base ||
+    path.basename(base) !== "profiles" ||
+    !path.basename(profile).startsWith("isolated-")
+  )
+    throw new Error("Refusing access outside the owned isolated profile directory.");
   const marker = JSON.parse(await readFile(path.join(profile, ".snow-browser-owner.json"), "utf8"));
-  if (marker.instance_id !== record.instance_id || marker.pid !== record.pid || marker.executable !== record.executable)
+  if (
+    record.mode !== "isolated" ||
+    marker.mode !== "isolated" ||
+    !record.instance_id ||
+    marker.instance_id !== record.instance_id ||
+    marker.pid !== record.pid ||
+    marker.executable !== record.executable ||
+    (await realpath(marker.profile)) !== profile ||
+    !/^(snowview(?:\.exe)?|Snow Browser)$/i.test(path.basename(record.executable))
+  )
     throw new Error("Profile ownership mismatch.");
+  return { profile, executable: await realpath(record.executable) };
+}
+
+function findOwnedWindows(profile, executable) {
+  return `$ErrorActionPreference='Stop'
+      $ownedProfile='${profile.replaceAll("'", "''")}'
+      $ownedExe='${executable.replaceAll("'", "''")}'
+      $arg=[regex]::Escape($ownedProfile)
+      $pattern='(?:^|\\s)(?:"--user-data-dir='+$arg+'"|--user-data-dir="'+$arg+'"|--user-data-dir='+$arg+')(?=\\s|$)'
+      function Find-Owned {
+        $matches=@(Get-CimInstance Win32_Process -Filter "Name='snowview.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Replace([char]47,[char]92) -match $pattern })
+        foreach ($item in $matches) { if ($item.ExecutablePath -ne $ownedExe) { throw 'Isolated process executable mismatch; refusing access' } }
+        $matches
+      }`;
+}
+
+// A nonce proves which launch was requested, not which browser received its URL.
+// Require a live process using the exact owned profile, allowing launcher PID changes.
+export async function isolatedRunning(record) {
+  try {
+    const { profile, executable } = await ownedProfile(record);
+    // Other platforms remain explicitly unverified until exact argv verification
+    // is implemented. A remembered PID alone must never establish ownership.
+    if (process.platform !== "win32") return false;
+    const { stdout } = await runFile(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `${findOwnedWindows(profile, executable)}\n      (Find-Owned).Count`,
+      ],
+      { encoding: "utf8", windowsHide: true, timeout: 15000 },
+    );
+    const count = stdout.trim();
+    return /^\d+$/.test(count) && Number(count) > 0;
+  } catch {
+    // Missing markers, unavailable process metadata, and access failures are all
+    // unverified; callers must not register such a connection as owned.
+    return false;
+  }
+}
+
+export async function cleanIsolated(home, record) {
+  const { profile, executable } = await ownedProfile(record, home);
   // Called only after explicit close-and-clean confirmation. Verify current process
   // identity and its exact profile argument; never terminate a remembered PID.
   if (process.platform === "win32") {
-    const escaped = profile.replaceAll("'", "''");
-    const executable = record.executable?.replaceAll("'", "''");
-    if (!executable)
-      throw new Error("Missing executable ownership information; close the isolated browser manually before cleanup.");
     const { stdout: output } = await runFile(
       "powershell.exe",
       [
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        `$ErrorActionPreference='Stop'
-      $ownedProfile='${escaped}'
-      $ownedExe='${executable}'
-      $arg=[regex]::Escape($ownedProfile)
-      $pattern='(?:^|\\s)(?:"--user-data-dir='+$arg+'"|--user-data-dir="'+$arg+'"|--user-data-dir='+$arg+')(?=\\s|$)'
-      function Find-Owned {
-        $matches=@(Get-CimInstance Win32_Process -Filter "Name='snowview.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Replace([char]47,[char]92) -match $pattern })
-        foreach ($item in $matches) { if ($item.ExecutablePath -ne $ownedExe) { throw 'Isolated process executable mismatch; refusing cleanup' } }
-        $matches
-      }
+        `${findOwnedWindows(profile, executable)}
       foreach ($item in (Find-Owned)) { $process=Get-Process -Id $item.ProcessId -ErrorAction SilentlyContinue; if ($process) { $null=$process.CloseMainWindow() } }
       $deadline=[DateTime]::UtcNow.AddSeconds(8)
       while ((Find-Owned).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }

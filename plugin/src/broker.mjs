@@ -4,7 +4,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { chromium } from "playwright-core";
 import { startProxy } from "../../js/src/proxy/proxy.ts";
-import { launchIsolated, cleanIsolated } from "./isolated.mjs";
+import { launchIsolated, cleanIsolated, isolatedRunning } from "./isolated.mjs";
 import { parseTool } from "./tools.mjs";
 import { startBridge } from "./bridge.mjs";
 
@@ -27,6 +27,7 @@ export class BrowserBroker {
     extensionVersion = "0.1.0",
     bridgePort = 29393,
     releaseUrl = "https://github.com/itMrBoy/cdpHelper/releases/tag/v0.1.0",
+    checkIsolated = isolatedRunning,
     connect = (endpoint) => chromium.connectOverCDP(endpoint, { noDefaults: true, timeout: 15000 }),
   }) {
     this.home = home;
@@ -34,6 +35,7 @@ export class BrowserBroker {
     this.extensionVersion = extensionVersion;
     this.bridgePort = bridgePort;
     this.releaseUrl = releaseUrl;
+    this.checkIsolated = checkIsolated;
     this.connect = connect;
     this.sessions = new Map();
     this.instances = new Map();
@@ -126,6 +128,10 @@ export class BrowserBroker {
     if (record) this.pendingTokens.add(hello.launch_token);
     let proxy;
     try {
+      if (record && (!(await this.checkIsolated(record)) || record.closing || !this.records.includes(record)))
+        throw new Error(
+          "The Snow process for this isolated profile is not running or its ownership cannot be verified. The launcher may have exited or merged into an existing window. No existing instance was selected.",
+        );
       const token = secret();
       proxy = await startProxy({
         proxy_listen_port: 0,
@@ -214,16 +220,19 @@ export class BrowserBroker {
       playwright_connected: Boolean(instance.browser?.isConnected()),
     };
   }
-  pending(session) {
+  async pending(session) {
     const record = this.records.find((r) => r.instance_id === session.pending);
+    const running = record ? await this.checkIsolated(record).catch(() => false) : false;
     return record
       ? {
           owned_instance_id: record.instance_id,
           profile: record.profile,
           pid: record.pid,
-          state: "waiting_for_extension",
-          setup:
-            "Enable the matching Release extension in the new Snow window and keep its initialization tab open. No other browser is selected.",
+          state: running ? "waiting_for_extension" : "launch_exited_unverified",
+          launch_process_running: running,
+          setup: running
+            ? "Enable the matching Release extension in the new Snow window and keep its initialization tab open. No other browser is selected."
+            : "No running Snow process could be verified for this isolated profile. The launcher may have exited or merged into an existing window. Isolation is not established. Ask whether to preserve or clean this attempt before retrying; no existing browser was selected.",
           release_url: this.releaseUrl,
         }
       : null;
@@ -270,6 +279,12 @@ export class BrowserBroker {
       );
     const instance = this.instances.get(session.instance);
     if (!instance) throw new Error("Browser instance is no longer attached. Select a browser again.");
+    if (instance.record && !(await this.checkIsolated(instance.record).catch(() => false))) {
+      await this.detach(instance);
+      throw new Error(
+        "The Snow process for the isolated profile exited or its ownership cannot be verified. Isolation is no longer established; no page operation was sent.",
+      );
+    }
     const browser = await this.ensureBrowser(instance);
     return browser.contexts()[0];
   }
@@ -298,7 +313,7 @@ export class BrowserBroker {
       return {
         selected: session.instance,
         instances: [...this.instances.values()].map((i) => this.describe(i)),
-        pending_isolation: this.pending(session),
+        pending_isolation: await this.pending(session),
         retained: this.records
           .filter((r) => ![...this.sessions.values()].some((s) => s.isolation === r.instance_id))
           .map((r) => ({ instance_id: r.instance_id, profile: r.profile, pid: r.pid })),
@@ -315,7 +330,7 @@ export class BrowserBroker {
         return this.describe(current);
       }
       if (session.pending) {
-        if (args.mode === "isolated") return { pending_isolation: this.pending(session) };
+        if (args.mode === "isolated") return { pending_isolation: await this.pending(session) };
         throw new Error(
           "Ask whether to close/clean the pending isolated instance and call browser_finish before switching.",
         );
@@ -363,7 +378,7 @@ export class BrowserBroker {
       }
       return session.instance
         ? this.describe(this.instances.get(session.instance))
-        : { pending_isolation: this.pending(session) };
+        : { pending_isolation: await this.pending(session) };
     }
     if (name === "browser_cleanup_retained") {
       if ([...this.sessions.values()].some((s) => s.isolation === args.instance_id))

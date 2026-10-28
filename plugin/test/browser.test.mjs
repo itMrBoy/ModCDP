@@ -55,6 +55,8 @@ test(
       home: path.join(scratch, "home"),
       extensionId: metadata.expected_extension_id,
       bridgePort: 0,
+      // The late-init record below represents an owned process fixture, not Snow acceptance.
+      checkIsolated: async () => true,
     });
     const fixture = http.createServer((_req, res) => {
       res.setHeader("content-type", "text/html");

@@ -37,7 +37,11 @@ Computer Use 可启动雪诺，但不用于安装扩展或后续网页操作。�
 所有 profile 使用统一的本机入口 **`127.0.0.1:29393/bridge`** 登记实例，不能用不同目录的扩展副本充当实例识别。
 
 - **复用**：inventory 以短编号展示多个已登记普通 profile；用户选定后，技能映射为 UUID，调用 `browser_select`，参数为 `{mode:"reuse", instance_id:"<UUID>"}`。没有登记实例时检查目标 profile 是否安装并启用了 Release 扩展，不自动选择别的浏览器。
-- **隔离**：调用 `browser_select`，参数为 `{mode:"isolated"}`，可选实际雪诺 `executable`。运行时启动独立 profile，通过一次性启动关联 URL 识别对应扩展；用户仍须在该 profile 手动加载扩展。不会复制现有 cookies、网站存储或已有 profile，不保证雪诺原生账号或系统级状态隔离。
+- **隔离**：调用 `browser_select`，参数为 `{mode:"isolated"}`，可选实际雪诺 `executable`。运行时启动独立 profile，通过一次性启动关联 URL 识别对应扩展；用户仍须在该 profile 手动加载扩展。不会复制现有 cookies、网站存储或已有 profile，不保证雪诺原生账号或系统级状态隔离。启动 URL 只是关联提示，雪诺可能退出新进程或把 URL 合并到原有窗口；不能仅凭 URL、扩展接入或成功 spawn 宣称真实隔离。
+
+接入带隔离 nonce 的扩展及每次自有实例页面操作前，Broker 校验存活进程的真实 executable 与精确 profile 参数，并复用目录和 owner marker 检查；失败会 detach，不发送页面操作。当前进程核验只在 Windows 实现，其他平台返回不可验证并拒绝隔离操作，复用模式不受影响。真实雪诺隔离验收尚未通过。
+
+pending 的 `launch_process_running` 为 true 且状态为 `waiting_for_extension` 时，按指引加载扩展；`launch_exited_unverified` 表示启动进程已退出、可能合并或无法证明归属，先询问保留还是清理这次尝试，不自动改用原有实例。
 
 隔离所有权记录 ID 在保留及清理期间稳定；每次扩展重连都会产生新的连接 UUID。`browser_select` 使用当前 inventory 的连接 UUID，`browser_cleanup_retained` 使用 retained 记录的 `instance_id`，不能互换。
 

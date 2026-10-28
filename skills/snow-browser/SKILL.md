@@ -17,11 +17,11 @@ Codex 与 Claude Code 共用本技能，通过 Snow Browser 插件 MCP 和 Playw
 
 ## 启动与扩展
 
-- 隔离模式只启动实际雪诺可执行文件及独立 profile，通过一次性启动关联 URL 将当前 profile 的扩展登记与本会话关联；不依赖原生 CDP，不自动改用其他 Chromium。
+- 隔离模式尝试启动实际雪诺及独立 profile，通过一次性启动 URL 关联扩展。URL/nonce 只表示启动意图，不能证明隔离已建立；雪诺可能退出新进程或把 URL 合并到原有窗口。Broker 在接入及每次自有实例网页操作前核验实际 executable、精确 profile 参数和存活进程；失效会 detach 并拒绝发送操作，不自动 fallback。当前仅 Windows 实现该核验，其他平台隔离保持未验证，不能宣称真实雪诺隔离已支持或验收通过，复用模式不受影响。
 - **Computer Use（computerUse / 桌面自动化）可以用于启动已安装的雪诺浏览器，仅限启动。** 后续导航、读取、点击、填写、网页截图和验证必须通过 MCP 内部的 Playwright 完成，连接失败也不回退到 Computer Use 操作网页。
 - 用户自行从 cdpHelper Release 下载独立扩展 ZIP，解压后在目标 profile 的扩展管理页手动加载/重载 **解压结果内的 `extension/` 子目录（其中含 `manifest.json`）**，不要选择 ZIP 根目录。插件不接收扩展目录，不下载、复制或配置扩展资源，不提供 `configure_extension`。
 - 多个普通 profile 通过统一的 `127.0.0.1:29393/bridge` 登记为不同实例。profile 连接身份保存在扩展自己的 storage 中，不能改写公共扩展目录来切换实例。
-- 扩展未安装、被策略限制或关联失败时，给出具体步骤并等待用户处理；不绕过扩展授权、不自动切换 profile。
+- `browser_status` 的 pending 状态包括 `launch_process_running`：`waiting_for_extension` 表示进程已核验存活、仍等扩展；`launch_exited_unverified` 表示启动进程已退出、合并或无法核验，隔离尚未建立。后一状态先说明失败并问用户保留或清理本次尝试，再决定重试；不能把原有窗口当隔离实例继续操作。扩展未安装、策略限制和关联失败同样不绕过授权或自动切换 profile。
 
 ## 网页操作
 
