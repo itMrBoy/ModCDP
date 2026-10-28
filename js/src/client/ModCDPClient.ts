@@ -562,7 +562,11 @@ export class ModCDPClient<
     }
     const peer_wait_started_at = Date.now();
     await transport.connect();
-    await transport.waitForPeer({ connected_after_ms: peer_wait_started_at });
+    // An externally managed browser may have joined an eager listener already.
+    // Only a newly launched browser requires a peer newer than this launch.
+    await transport.waitForPeer({
+      connected_after_ms: launcher.config.launcher_mode === "none" ? null : peer_wait_started_at,
+    });
 
     if (this.upstream.config.upstream_mode === "ws" && transport.config.upstream_ws_cdp_url)
       this.upstream.update({ upstream_ws_cdp_url: transport.config.upstream_ws_cdp_url });

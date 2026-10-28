@@ -17,6 +17,7 @@ import { ModCDPClient } from "../src/index.js";
 import { LocalBrowserLauncher } from "../src/launcher/LocalBrowserLauncher.js";
 import { startProxy } from "../src/proxy/proxy.js";
 import { WSUpstreamTransport } from "../src/transport/WSUpstreamTransport.js";
+import { buildExtensionFixture } from "./helpers.extension.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const EXTENSION_PATH = path.resolve(HERE, "..", "..", "dist", "extension");
@@ -293,6 +294,11 @@ test("proxy CLI maps ws upstream URL and route shorthands into an existing real 
 }, 60_000);
 
 test("proxy CLI maps user-facing flags into a real reversews browser session", async () => {
+  const reverse_port = await LocalBrowserLauncher.freePort();
+  const extension = await buildExtensionFixture({
+    enable_reversews: true,
+    reversews_url: `ws://127.0.0.1:${reverse_port}`,
+  });
   const proxy_port = await LocalBrowserLauncher.freePort();
   const proxy_script = path.resolve(HERE, "..", "..", "dist", "js", "src", "proxy", "proxy.js");
   const proc = spawn(
@@ -307,11 +313,13 @@ test("proxy CLI maps user-facing flags into a real reversews browser session", a
       "--launcher-local-executable-path",
       REVERSEWS_TEST_BROWSER_PATH,
       "--upstream-mode=reversews",
+      "--upstream-reversews-bind",
+      `127.0.0.1:${reverse_port}`,
       "--upstream-reversews-wait-timeout-ms",
       "10000",
       "--injector-mode=cli",
       "--injector-cli-extension-path",
-      EXTENSION_PATH,
+      extension.extension_path,
       "--injector-service-worker-url-suffixes",
       JSON.stringify(["/modcdp/service_worker.js"]),
       "--injector-trust-service-worker-target",
@@ -327,10 +335,16 @@ test("proxy CLI maps user-facing flags into a real reversews browser session", a
     await expectProxyCdpWorks(`ws://127.0.0.1:${proxy_port}/devtools/browser/proxy`, "cli-reversews");
   } finally {
     await closeProcess(proc);
+    await extension.close();
   }
 }, 90_000);
 
 test("proxy upgrades a vanilla CDP websocket to ModCDP against a real browser over reversews client transport", async () => {
+  const reverse_port = await LocalBrowserLauncher.freePort();
+  const extension = await buildExtensionFixture({
+    enable_reversews: true,
+    reversews_url: `ws://127.0.0.1:${reverse_port}`,
+  });
   const proxy_port = await LocalBrowserLauncher.freePort();
   const proxy = await startProxy({
     proxy_listen_port: proxy_port,
@@ -344,11 +358,12 @@ test("proxy upgrades a vanilla CDP websocket to ModCDP against a real browser ov
     },
     upstream: {
       upstream_mode: "reversews",
+      upstream_reversews_bind: `127.0.0.1:${reverse_port}`,
       upstream_reversews_wait_timeout_ms: 10_000,
     } as any,
     injector: {
       injector_mode: "cli",
-      injector_cli_extension_path: EXTENSION_PATH,
+      injector_cli_extension_path: extension.extension_path,
       injector_service_worker_url_suffixes: ["/modcdp/service_worker.js"],
       injector_trust_service_worker_target: true,
       injector_service_worker_probe_timeout_ms: 1_000,
@@ -359,6 +374,7 @@ test("proxy upgrades a vanilla CDP websocket to ModCDP against a real browser ov
     await expectProxyCdpWorks(proxy.url, "reversews");
   } finally {
     await proxy.close();
+    await extension.close();
   }
 }, 90_000);
 

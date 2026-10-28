@@ -4,5 +4,14 @@
 
 import { ModCDPServer } from "../../js/src/server/ModCDPServer.js";
 
-const server = new ModCDPServer();
+declare const __MODCDP_ENABLE_REVERSEWS__: boolean;
+declare const __MODCDP_ENABLE_NATS__: boolean;
+
+const server = new ModCDPServer(
+  {},
+  {
+    enable_reversews: typeof __MODCDP_ENABLE_REVERSEWS__ !== "undefined" && __MODCDP_ENABLE_REVERSEWS__,
+    enable_nats: typeof __MODCDP_ENABLE_NATS__ !== "undefined" && __MODCDP_ENABLE_NATS__,
+  },
+);
 void server.start();

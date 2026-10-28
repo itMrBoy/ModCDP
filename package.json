@@ -155,12 +155,12 @@
     }
   },
   "scripts": {
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "pnpm run build:package && pnpm run build:extension-assets && pnpm run build:python-readme",
     "build:clean": "pnpm run clean && pnpm run build",
-    "build:package": "tsc -p tsconfig.json && rm -rf dist/js/test && rm -f dist/.gitignore",
+    "build:package": "tsc -p tsconfig.json && node -e \"const fs = require('node:fs'); fs.rmSync('dist/js/test', { recursive: true, force: true }); fs.rmSync('dist/.gitignore', { force: true })\"",
     "build:extension-assets": "node js/scripts/build-extension-assets.mjs",
-    "build:python-readme": "test -f python/README.md",
+    "build:python-readme": "node -e \"if (!require('node:fs').statSync('python/README.md').isFile()) process.exit(1)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "pnpm exec prek run --all-files",
     "format": "pnpm exec prek run oxfmt --all-files",
@@ -188,7 +188,7 @@
     "esbuild": "^0.28.0",
     "oxfmt": "^0.47.0",
     "oxlint": "^1.62.0",
-    "playwright": "^1.59.1",
+    "playwright": "^1.60.0",
     "puppeteer-core": "^24.42.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"

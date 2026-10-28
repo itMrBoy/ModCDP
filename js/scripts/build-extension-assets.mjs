@@ -3,7 +3,16 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { parseArgs } from "node:util";
 import { build } from "esbuild";
+
+const { values } = parseArgs({
+  args: process.argv.slice(2).filter((arg) => arg !== "--"),
+  options: {
+    "enable-reversews": { type: "boolean", default: false },
+    "enable-nats": { type: "boolean", default: false },
+  },
+});
 
 const root = process.cwd();
 const dist_extension = path.join(root, "dist", "extension");
@@ -21,16 +30,22 @@ const copy = (from, to) => {
 
 copy("extension/manifest.json", "dist/extension/manifest.json");
 copy("extension/src/pages/options.html", "dist/extension/options.html");
-copy("dist/extension/src/pages/options.js", "dist/extension/options.js");
 copy("extension/src/pages/offscreen_keepalive.html", "dist/extension/offscreen/keepalive.html");
-copy("dist/extension/src/pages/offscreen_keepalive.js", "dist/extension/offscreen/offscreen_keepalive.js");
 await build({
-  entryPoints: [path.join(root, "extension/src/service_worker.ts")],
-  outfile: path.join(root, "dist/extension/modcdp/service_worker.js"),
+  entryPoints: {
+    "modcdp/service_worker": path.join(root, "extension/src/service_worker.ts"),
+    options: path.join(root, "extension/src/pages/options.ts"),
+    "offscreen/offscreen_keepalive": path.join(root, "extension/src/pages/offscreen_keepalive.ts"),
+  },
+  outdir: dist_extension,
   bundle: true,
   format: "esm",
   platform: "browser",
   target: ["chrome116"],
+  define: {
+    __MODCDP_ENABLE_REVERSEWS__: String(values["enable-reversews"]),
+    __MODCDP_ENABLE_NATS__: String(values["enable-nats"]),
+  },
   sourcemap: true,
   logLevel: "silent",
 });
@@ -48,10 +63,21 @@ const touchTree = (dir) => {
 touchTree(dist_extension);
 
 fs.rmSync(path.join(root, "dist", "extension.zip"), { force: true });
-execFileSync("zip", ["-X", "-qr", "extension.zip", "extension"], {
-  cwd: path.join(root, "dist"),
-  stdio: "inherit",
-});
+const archive_options = { cwd: path.join(root, "dist"), stdio: "inherit" };
+if (process.platform === "win32") {
+  execFileSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$ErrorActionPreference = 'Stop'; Compress-Archive -LiteralPath 'extension' -DestinationPath 'extension.zip' -CompressionLevel Optimal",
+    ],
+    { ...archive_options, windowsHide: true },
+  );
+} else {
+  execFileSync("zip", ["-X", "-qr", "extension.zip", "extension"], archive_options);
+}
 
 copy("dist/extension.zip", "python/modcdp/extension.zip");
 copy("dist/extension.zip", "go/modcdp/injector/extension.zip");

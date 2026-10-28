@@ -41,6 +41,12 @@ class ReverseWSUpstreamTransport extends UpstreamTransport {
   }>();
   peer_info: ReverseHello | null = null;
 
+  /** Private bridge lifecycle message, outside the public CDP/Mod.* protocol. */
+  frontendDisconnected() {
+    if (this.socket?.readyState === this.socket?.OPEN)
+      this.socket?.send(JSON.stringify({ type: "modcdp.reverse.client.closed" }));
+  }
+
   constructor(config: z.input<typeof ReverseWSUpstreamTransportConfigSchema> = {}) {
     super();
     this.config = ReverseWSUpstreamTransportConfigSchema.parse({ ...config, upstream_mode: "reversews" });
@@ -102,15 +108,22 @@ class ReverseWSUpstreamTransport extends UpstreamTransport {
   }
 
   async connect() {
+    if (this.reversews_listener) return;
     const { WebSocketServer } = await import("ws");
     const { host, port } = parseHostPort(this.endpoint_url, "127.0.0.1", 29292);
     const reversews_listener = new WebSocketServer({ host, port });
     this.reversews_listener = reversews_listener;
     reversews_listener.on("connection", (socket) => this.accept(socket));
-    await new Promise<void>((resolve, reject) => {
-      reversews_listener.once("listening", () => resolve());
-      reversews_listener.once("error", reject);
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        reversews_listener.once("listening", () => resolve());
+        reversews_listener.once("error", reject);
+      });
+    } catch (error) {
+      this.reversews_listener = null;
+      reversews_listener.close();
+      throw error;
+    }
   }
 
   async waitForPeer({ connected_after_ms = null }: UpstreamPeerWaitConfig = {}) {

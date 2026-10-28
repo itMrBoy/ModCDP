@@ -145,6 +145,23 @@ class ChromeDebuggerUpstreamTransport extends UpstreamTransport {
     this.targetId_from_sessionId.delete(sessionId);
   }
 
+  /** Native primitives shared with the browser-endpoint adapter. */
+  async attachForCDP(targetId: string) {
+    const debuggee = await this.debuggeeForTarget(targetId);
+    const owned = !this.attached_debuggees.has(JSON.stringify(debuggee));
+    await this.attachDebuggee(debuggee, false);
+    return { debuggee, owned };
+  }
+
+  async detachForCDP(debuggee: chrome.debugger.Debuggee) {
+    await globalThis.chrome.debugger.detach(debuggee);
+    this.attached_debuggees.delete(JSON.stringify(debuggee));
+  }
+
+  sendForCDP(debuggee: chrome.debugger.DebuggerSession, method: string, params: Record<string, unknown> = {}) {
+    return this.sendToDebugger(debuggee, method, params);
+  }
+
   override send(message: CdpCommandMessage): void;
   override send(
     method: string,
@@ -225,17 +242,27 @@ class ChromeDebuggerUpstreamTransport extends UpstreamTransport {
     return await this.debuggeeForTarget(targetId);
   }
 
-  private async attachDebuggee(debuggee: chrome.debugger.Debuggee) {
+  private async attachDebuggee(debuggee: chrome.debugger.Debuggee, autoAttach = true) {
     const key = JSON.stringify(debuggee);
     if (this.attached_debuggees.has(key)) return;
     const chrome_api = globalThis.chrome;
     await new Promise<void>((resolve, reject) =>
       chrome_api.debugger.attach(debuggee, "1.3", () => {
         const error = chrome_api.runtime.lastError;
-        if (!error || error.message?.includes("Another debugger is already attached")) resolve();
-        else reject(new Error(error.message));
+        if (!error) resolve();
+        else if (error.message?.includes("Another debugger is already attached")) {
+          // A previous configure/start can leave this extension attached. Prove
+          // that the existing session is accessible to us before reusing it;
+          // another extension's/DevTools' attachment must still fail.
+          void this.sendToDebugger(debuggee, "Runtime.getIsolateId").then(
+            () => resolve(),
+            () => reject(new Error(error.message)),
+          );
+        } else reject(new Error(error.message));
       }),
     );
+    this.attached_debuggees.add(key);
+    if (!autoAttach) return;
     await new Promise<void>((resolve, reject) =>
       chrome_api.debugger.sendCommand(
         debuggee,
@@ -262,7 +289,6 @@ class ChromeDebuggerUpstreamTransport extends UpstreamTransport {
       const cdpSessionId = (source as chrome.debugger.Debuggee & { sessionId?: string }).sessionId ?? null;
       if (method === Target.AttachedToTargetEvent.id) {
         const attached = Target.AttachedToTargetEvent.parse(payload);
-        if (typeof source.tabId === "number") this.targetId_from_tabId.set(source.tabId, attached.targetInfo.targetId);
         this.targetId_from_sessionId.set(attached.sessionId, attached.targetInfo.targetId);
       } else if (method === Target.DetachedFromTargetEvent.id) {
         const detached = Target.DetachedFromTargetEvent.parse(payload);
@@ -293,13 +319,23 @@ class ChromeDebuggerUpstreamTransport extends UpstreamTransport {
     params: Record<string, unknown> = {},
   ): Promise<ProtocolResult> {
     const chrome_api = globalThis.chrome;
-    return new Promise<ProtocolResult>((resolve, reject) =>
+    return new Promise<ProtocolResult>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `${method} timed out after ${this.config.upstream_cdp_send_timeout_ms}ms for ${JSON.stringify(debuggee)}`,
+            ),
+          ),
+        this.config.upstream_cdp_send_timeout_ms,
+      );
       chrome_api.debugger.sendCommand(debuggee, method, params, (result) => {
+        clearTimeout(timer);
         const error = chrome_api.runtime.lastError;
         if (error) reject(new Error(error.message));
         else resolve(result as ProtocolResult);
-      }),
-    );
+      });
+    });
   }
 
   override toJSON() {

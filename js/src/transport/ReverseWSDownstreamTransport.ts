@@ -10,7 +10,9 @@ import { DownstreamTransport } from "./DownstreamTransport.js";
 import { z } from "zod";
 
 const DEFAULT_REVERSE_BRIDGE_RECONNECT_INTERVAL_MS = 2_000;
-const DEFAULT_REVERSE_BRIDGE_URL = "ws://127.0.0.1:29292";
+declare const __MODCDP_REVERSEWS_URL__: string;
+const DEFAULT_REVERSE_BRIDGE_URL =
+  typeof __MODCDP_REVERSEWS_URL__ !== "undefined" ? __MODCDP_REVERSEWS_URL__ : "ws://127.0.0.1:29292";
 
 const ReverseWSDownstreamTransportConfigSchema = z
   .object({
@@ -59,6 +61,21 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
   // Request object -> WebSocket that sent it. Written by handleMessage and read
   // by sendResponse so responses go only to the originating downstream client.
   private readonly socket_from_request = new WeakMap<CdpCommandMessage, WebSocket>();
+  private readonly requests = new Set<Promise<void>>();
+  private resetting: Promise<void> = Promise.resolve();
+
+  constructor(private readonly disconnectClient: () => Promise<void> = async () => {}) {
+    super();
+  }
+
+  private resetClient() {
+    const requests = [...this.requests];
+    this.resetting = this.resetting.then(async () => {
+      await Promise.allSettled(requests);
+      await this.disconnectClient();
+    });
+    void this.resetting.catch((error) => console.error("ModCDP client cleanup:", error));
+  }
 
   /** True when the reversews socket is currently open and can receive events. */
   get connected() {
@@ -68,8 +85,9 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
   /** Configure and start the reversews downstream connection. */
   start(endpoint?: string, config: z.input<typeof ReverseWSDownstreamTransportConfigSchema> = {}) {
     this.config = ReverseWSDownstreamTransportConfigSchema.parse({
+      ...this.config,
       ...config,
-      downstream_reversews_url: endpoint,
+      downstream_reversews_url: endpoint ?? config.downstream_reversews_url ?? this.config.downstream_reversews_url,
     });
     if (!/^wss?:\/\//i.test(this.config.downstream_reversews_url)) {
       throw new Error(
@@ -163,20 +181,33 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
       );
     });
     ws.addEventListener("message", (event) => {
-      void this.handleMessage(ws, event.data);
+      const data = JSON.parse(String(event.data));
+      if (data?.type === "modcdp.reverse.client.closed") {
+        this.resetClient();
+        return;
+      }
+      const request = this.handleMessage(ws, event.data);
+      this.requests.add(request);
+      void request
+        .finally(() => this.requests.delete(request))
+        .catch((error) => console.error("ModCDP request:", error));
     });
     ws.addEventListener("error", () => {
       if (this.socket === ws) this.socket = null;
       this.scheduleReconnect();
     });
     ws.addEventListener("close", () => {
-      if (this.socket === ws) this.socket = null;
+      if (this.socket === ws) {
+        this.socket = null;
+        this.resetClient();
+      }
       this.scheduleReconnect();
     });
     return { downstream_reversews_url: endpoint, connected: false };
   }
 
   private async handleMessage(ws: WebSocket, data: unknown) {
+    await this.resetting;
     const message = CdpCommandMessageSchema.parse(JSON.parse(typeof data === "string" ? data : String(data)));
     this.socket_from_request.set(message, ws);
     await this.handleRequest(message);

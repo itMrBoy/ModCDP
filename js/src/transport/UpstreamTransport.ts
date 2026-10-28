@@ -206,7 +206,17 @@ class UpstreamTransport {
   }
 
   protected emitRecv(message: CdpResponseMessage | CdpEventMessage) {
-    for (const listener of this.recv_listeners) listener(message);
+    // One failing listener (e.g. strict validation of an event from another
+    // protocol version) must not starve the others or tear down the socket.
+    for (const listener of this.recv_listeners) {
+      try {
+        listener(message);
+      } catch (error) {
+        const label = "method" in message ? message.method : `response ${message.id}`;
+        const detail = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ").slice(0, 300);
+        console.error(`[ModCDP] recv listener failed for ${label}: ${detail}`);
+      }
+    }
   }
 
   protected emitClose(error: Error) {
