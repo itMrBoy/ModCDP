@@ -15,6 +15,8 @@ const ReverseWSUpstreamTransportConfigSchema = z.object({
   upstream_mode: z.literal("reversews").default("reversews"),
   upstream_reversews_bind: z.string().default(DEFAULT_UPSTREAM_REVERSEWS_BIND),
   upstream_reversews_wait_timeout_ms: z.number().positive().default(DEFAULT_UPSTREAM_REVERSEWS_WAIT_TIMEOUT_MS),
+  upstream_reversews_token: z.string().optional(),
+  upstream_reversews_replace_peer: z.boolean().default(true),
   upstream_cdp_send_timeout_ms: z.number().positive().default(DEFAULT_CLIENT_CDP_SEND_TIMEOUT_MS),
 });
 type ReverseWSUpstreamTransportConfig = z.infer<typeof ReverseWSUpstreamTransportConfigSchema>;
@@ -110,15 +112,27 @@ class ReverseWSUpstreamTransport extends UpstreamTransport {
   async connect() {
     if (this.reversews_listener) return;
     const { WebSocketServer } = await import("ws");
-    const { host, port } = parseHostPort(this.endpoint_url, "127.0.0.1", 29292);
+    const { host, port } = parseReverseBind(this.endpoint_url);
     const reversews_listener = new WebSocketServer({ host, port });
     this.reversews_listener = reversews_listener;
-    reversews_listener.on("connection", (socket) => this.accept(socket));
+    reversews_listener.on("connection", (socket, request) => {
+      if (
+        this.config.upstream_reversews_token &&
+        new URL(request.url ?? "/", "http://127.0.0.1").searchParams.get("token") !==
+          this.config.upstream_reversews_token
+      ) {
+        socket.close(1008, "Unauthorized bridge");
+        return;
+      }
+      this.accept(socket);
+    });
     try {
       await new Promise<void>((resolve, reject) => {
         reversews_listener.once("listening", () => resolve());
         reversews_listener.once("error", reject);
       });
+      const address = reversews_listener.address();
+      if (address && typeof address !== "string") this.endpoint_url = `ws://${host}:${address.port}`;
     } catch (error) {
       this.reversews_listener = null;
       reversews_listener.close();
@@ -185,6 +199,10 @@ class ReverseWSUpstreamTransport extends UpstreamTransport {
         return;
       }
       if (this.socket && this.socket !== socket) {
+        if (!this.config.upstream_reversews_replace_peer) {
+          fail("Another browser is already connected; refusing to switch browser identity.");
+          return;
+        }
         try {
           this.socket.close(1012, "reverse peer replaced");
         } catch {}
@@ -233,8 +251,14 @@ class ReverseWSUpstreamTransport extends UpstreamTransport {
 }
 
 function endpointFromBind(bind: string) {
-  const { host, port } = parseHostPort(bind, "127.0.0.1", 29292);
+  const { host, port } = parseReverseBind(bind);
   return `ws://${host}:${port}`;
+}
+
+function parseReverseBind(bind: string) {
+  const url = new URL(bind.includes("://") ? bind : `ws://${bind}`);
+  if (url.port === "0") return { host: url.hostname || "127.0.0.1", port: 0 };
+  return parseHostPort(bind, "127.0.0.1", 29292);
 }
 
 export {

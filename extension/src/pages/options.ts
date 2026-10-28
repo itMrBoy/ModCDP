@@ -8,6 +8,59 @@ type RuntimeJSON = {
 };
 
 const out = document.getElementById("out")!;
+declare const __SNOW_PLUGIN_BRIDGE__: boolean;
+const snowPlugin = typeof __SNOW_PLUGIN_BRIDGE__ !== "undefined" && __SNOW_PLUGIN_BRIDGE__;
+
+function showSnowState(value: unknown) {
+  const state = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const status = document.getElementById("snow-status")!;
+  status.textContent = state.connected
+    ? `Connected / 已连接: ${String(state.name)} [${String(state.short_id)}]`
+    : `Disconnected / 未连接${state.error ? `: ${String(state.error)}` : ""}`;
+}
+
+if (snowPlugin) {
+  document.getElementById("snow-bridge")!.hidden = false;
+  const nameInput = document.getElementById("snow-name") as HTMLInputElement;
+  const urlInput = document.getElementById("snow-url") as HTMLInputElement;
+  const result = document.getElementById("snow-settings-result")!;
+  void chrome.storage.local.get(["snowInstanceName", "snowBridgeUrl"]).then((settings) => {
+    nameInput.value = typeof settings.snowInstanceName === "string" ? settings.snowInstanceName : "";
+    urlInput.value =
+      typeof settings.snowBridgeUrl === "string" ? settings.snowBridgeUrl : "ws://127.0.0.1:29393/bridge";
+  });
+  void chrome.storage.session.get("snowBridgeState").then((settings) => showSnowState(settings.snowBridgeState));
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "session" && changes.snowBridgeState) showSnowState(changes.snowBridgeState.newValue);
+  });
+  document.getElementById("snow-settings")!.onsubmit = (event) => {
+    event.preventDefault();
+    try {
+      const url = new URL(urlInput.value.trim());
+      if (
+        !/^ws:\/\/127\.0\.0\.1:\d+\/bridge$/.test(urlInput.value.trim()) ||
+        url.protocol !== "ws:" ||
+        url.hostname !== "127.0.0.1" ||
+        !url.port ||
+        url.pathname !== "/bridge" ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash
+      ) {
+        throw new Error("Use ws://127.0.0.1:<port>/bridge / 请填写本机服务地址。");
+      }
+      void chrome.storage.local
+        .set({ snowInstanceName: nameInput.value.trim(), snowBridgeUrl: url.href })
+        .then(() => chrome.runtime.reload())
+        .catch((error) => {
+          result.textContent = String(error);
+        });
+    } catch (error) {
+      result.textContent = String(error);
+    }
+  };
+}
 
 function renderObject(title: string, value: unknown) {
   const details = document.createElement("details");

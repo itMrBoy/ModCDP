@@ -21,6 +21,20 @@ const ReverseWSDownstreamTransportConfigSchema = z
   })
   .strict();
 
+const ReverseWSRegistrationSchema = z.object({
+  type: z.literal("snow.bridge.registered"),
+  instance_id: z.string().uuid(),
+  short_id: z.string().regex(/^[a-zA-Z0-9]{8}$/),
+  name: z.string(),
+  owned: z.boolean(),
+});
+
+export type ReverseWSRegistration = z.infer<typeof ReverseWSRegistrationSchema>;
+export type ReverseWSBridgeOptions = {
+  hello: { version: 2; extension_version?: string; name?: string; launch_token?: string };
+  onRegistration?: (registration: ReverseWSRegistration | null) => void | Promise<void>;
+};
+
 /**
  * Owns the reverse WebSocket downstream connection from the extension service
  * worker back to a waiting ModCDP client/proxy.
@@ -64,8 +78,23 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
   private readonly requests = new Set<Promise<void>>();
   private resetting: Promise<void> = Promise.resolve();
 
-  constructor(private readonly disconnectClient: () => Promise<void> = async () => {}) {
+  constructor(
+    private readonly disconnectClient: () => Promise<void> = async () => {},
+    endpoint?: string,
+    private readonly bridge?: ReverseWSBridgeOptions,
+  ) {
     super();
+    if (endpoint) this.config = ReverseWSDownstreamTransportConfigSchema.parse({ downstream_reversews_url: endpoint });
+  }
+
+  private notifyRegistration(registration: ReverseWSRegistration | null) {
+    try {
+      void Promise.resolve(this.bridge?.onRegistration?.(registration)).catch((error) =>
+        console.error("ModCDP bridge registration:", error),
+      );
+    } catch (error) {
+      console.error("ModCDP bridge registration:", error);
+    }
   }
 
   private resetClient() {
@@ -120,6 +149,7 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
     }
     const socket = this.socket;
     this.socket = null;
+    this.notifyRegistration(null);
     if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) {
       socket.close(1000, reason);
     }
@@ -156,7 +186,7 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
     this.reconnect_timer = setTimeout(() => {
       this.reconnect_timer = null;
       if (!this.started) return;
-      void this.connect(this.config.downstream_reversews_url).catch(() => {});
+      void this.connect(this.config.downstream_reversews_url).catch(() => this.scheduleReconnect());
     }, this.config.reconnect_interval_ms);
   }
 
@@ -171,18 +201,36 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
     const ws = new WebSocket(endpoint);
     this.socket = ws;
     ws.addEventListener("open", () => {
+      if (this.socket !== ws) return;
       ws.send(
         JSON.stringify({
           type: "modcdp.reverse.hello",
           role: "extension-service-worker",
           version: 1,
           extension_id: globalThis.chrome?.runtime?.id ?? null,
+          ...this.bridge?.hello,
         }),
       );
     });
     ws.addEventListener("message", (event) => {
-      const data = JSON.parse(String(event.data));
-      if (data?.type === "modcdp.reverse.client.closed") {
+      if (this.socket !== ws) return;
+      let data: unknown;
+      try {
+        data = JSON.parse(String(event.data));
+      } catch {
+        ws.close(1008, "Invalid bridge message");
+        return;
+      }
+      if ((data as { type?: string })?.type === "snow.bridge.registered") {
+        const registration = ReverseWSRegistrationSchema.safeParse(data);
+        if (!this.bridge || !registration.success) {
+          ws.close(1008, "Invalid bridge registration");
+          return;
+        }
+        this.notifyRegistration(registration.data);
+        return;
+      }
+      if ((data as { type?: string })?.type === "modcdp.reverse.client.closed") {
         this.resetClient();
         return;
       }
@@ -193,12 +241,15 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
         .catch((error) => console.error("ModCDP request:", error));
     });
     ws.addEventListener("error", () => {
-      if (this.socket === ws) this.socket = null;
+      if (this.socket === ws) this.notifyRegistration(null);
+      // The close event owns cleanup; retaining the socket prevents a second
+      // connection racing the failed connection before it has closed.
       this.scheduleReconnect();
     });
     ws.addEventListener("close", () => {
       if (this.socket === ws) {
         this.socket = null;
+        this.notifyRegistration(null);
         this.resetClient();
       }
       this.scheduleReconnect();
@@ -208,6 +259,7 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
 
   private async handleMessage(ws: WebSocket, data: unknown) {
     await this.resetting;
+    if (this.socket !== ws || ws.readyState !== WebSocket.OPEN) return;
     const message = CdpCommandMessageSchema.parse(JSON.parse(typeof data === "string" ? data : String(data)));
     this.socket_from_request.set(message, ws);
     await this.handleRequest(message);

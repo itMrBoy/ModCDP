@@ -1,7 +1,3 @@
-// MODCDP_TRANSLATE: KEEP THIS FILE TRANSLATED ACROSS TYPESCRIPT, PYTHON, AND GO.
-// Keep all shapes, signatures, behavior, and tests 1:1 in sync with:
-// - ./python/modcdp/injector/BBExtensionInjector.py
-// - ./go/modcdp/injector/BBExtensionInjector.go
 import { ExtensionInjector, InjectorConfigSchema } from "./ExtensionInjector.js";
 import type { z } from "zod";
 import type { LauncherConfig } from "../launcher/BrowserLauncher.js";

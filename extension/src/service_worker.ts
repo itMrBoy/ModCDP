@@ -3,15 +3,112 @@
 // Extension service worker entry point.
 
 import { ModCDPServer } from "../../js/src/server/ModCDPServer.js";
+import type { ReverseWSBridgeOptions } from "../../js/src/transport/ReverseWSDownstreamTransport.js";
 
 declare const __MODCDP_ENABLE_REVERSEWS__: boolean;
 declare const __MODCDP_ENABLE_NATS__: boolean;
+declare const __SNOW_PLUGIN_BRIDGE__: boolean;
 
-const server = new ModCDPServer(
-  {},
-  {
-    enable_reversews: typeof __MODCDP_ENABLE_REVERSEWS__ !== "undefined" && __MODCDP_ENABLE_REVERSEWS__,
-    enable_nats: typeof __MODCDP_ENABLE_NATS__ !== "undefined" && __MODCDP_ENABLE_NATS__,
-  },
-);
-void server.start();
+const snowPlugin = typeof __SNOW_PLUGIN_BRIDGE__ !== "undefined" && __SNOW_PLUGIN_BRIDGE__;
+const defaultSnowBridgeUrl = "ws://127.0.0.1:29393/bridge";
+
+function snowBridgeUrl(value: unknown) {
+  const endpoint = typeof value === "string" && value ? value : defaultSnowBridgeUrl;
+  const url = new URL(endpoint);
+  if (
+    !/^ws:\/\/127\.0\.0\.1:\d+\/bridge$/.test(endpoint) ||
+    url.protocol !== "ws:" ||
+    url.hostname !== "127.0.0.1" ||
+    !url.port ||
+    url.pathname !== "/bridge" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error("Snow bridge URL must be ws://127.0.0.1:<port>/bridge.");
+  }
+  return url;
+}
+
+async function start() {
+  let endpoint: string | undefined;
+  let bridge: ReverseWSBridgeOptions | undefined;
+  if (snowPlugin) {
+    // Settings belong to this profile, never to the shared extension directory.
+    const settings = await chrome.storage.local.get(["snowBridgeUrl", "snowInstanceName", "snowOwnedLaunchToken"]);
+    await chrome.storage.session.set({ snowBridgeState: { connected: false } });
+    const url = snowBridgeUrl(settings.snowBridgeUrl);
+    endpoint = url.href;
+    const initializeOrigin = `http://${url.host}`;
+    let launchToken: string | undefined;
+    for (const tab of await chrome.tabs.query({})) {
+      if (!tab.url) continue;
+      try {
+        const tabUrl = new URL(tab.url);
+        const match = /^\/initialize\/([a-f0-9]{64})$/.exec(tabUrl.pathname);
+        if (tabUrl.origin === initializeOrigin && !tabUrl.search && !tabUrl.hash && match) {
+          launchToken = match[1];
+          break;
+        }
+      } catch {
+        // Browser internal pages do not necessarily have an ordinary URL.
+      }
+    }
+    if (
+      !launchToken &&
+      typeof settings.snowOwnedLaunchToken === "string" &&
+      /^[a-f0-9]{64}$/.test(settings.snowOwnedLaunchToken)
+    ) {
+      launchToken = settings.snowOwnedLaunchToken;
+    }
+    const name = typeof settings.snowInstanceName === "string" ? settings.snowInstanceName.trim().slice(0, 80) : "";
+    // Serialize updates so an old registration cannot overwrite a later disconnect.
+    let stateWrite = Promise.resolve();
+    bridge = {
+      hello: {
+        version: 2,
+        extension_version: chrome.runtime.getManifest().version,
+        ...(name ? { name } : {}),
+        ...(launchToken ? { launch_token: launchToken } : {}),
+      },
+      onRegistration(registration) {
+        stateWrite = stateWrite
+          .catch(() => {})
+          .then(async () => {
+            await chrome.storage.session.set({
+              snowBridgeState: registration ? { connected: true, ...registration } : { connected: false },
+            });
+            if (registration?.owned && launchToken) {
+              await chrome.storage.local.set({ snowOwnedLaunchToken: launchToken });
+            }
+          });
+        return stateWrite;
+      },
+    };
+  } else {
+    // Retain standalone SDK compatibility; plugin builds never read this file.
+    const bridgeConfig: { reversews_endpoint?: string } = await fetch(chrome.runtime.getURL("bridge-config.json"))
+      .then((response) => (response.ok ? response.json() : {}))
+      .catch(() => ({}));
+    endpoint = bridgeConfig.reversews_endpoint;
+    if (endpoint && !/^ws:\/\/127\.0\.0\.1:\d+\/?(?:\?|$)/.test(endpoint)) {
+      throw new Error("The plugin bridge endpoint must be a loopback WebSocket URL.");
+    }
+  }
+  const server = new ModCDPServer(
+    {},
+    {
+      enable_reversews: typeof __MODCDP_ENABLE_REVERSEWS__ !== "undefined" && __MODCDP_ENABLE_REVERSEWS__,
+      enable_nats: typeof __MODCDP_ENABLE_NATS__ !== "undefined" && __MODCDP_ENABLE_NATS__,
+      reversews_endpoint: endpoint,
+      reversews_bridge: bridge,
+    },
+  );
+  await server.start();
+}
+// Extension service workers do not support module top-level await.
+void start().catch(async (error) => {
+  console.error("ModCDP startup failed:", error);
+  if (snowPlugin) await chrome.storage.session.set({ snowBridgeState: { connected: false, error: String(error) } });
+});

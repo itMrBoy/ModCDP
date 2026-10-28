@@ -1,7 +1,3 @@
-// MODCDP_TRANSLATE: KEEP THIS FILE TRANSLATED ACROSS TYPESCRIPT, PYTHON, AND GO.
-// Keep all shapes, signatures, behavior, and tests 1:1 in sync with:
-// - ./python/modcdp/router/AutoSessionRouter.py
-// - ./go/modcdp/router/AutoSessionRouter.go
 import type { cdp } from "../types/generated/cdp.js";
 import type { z } from "zod";
 import * as DOM from "../types/generated/zod/DOM.js";

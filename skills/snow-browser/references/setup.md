@@ -1,76 +1,68 @@
-# 安装技能与连接雪诺浏览器
+# 安装 Snow Browser 插件
 
-## 两端安装
+## 用户安装入口
 
-`skills/snow-browser/` 是完整技能目录，可以复制到其他机器。根目录 `skills/` 本身不是两端普通本地技能的自动发现目录；将整个 `snow-browser` 文件夹复制到下列位置之一：
+唯一插件市场分发入口为 **cdpHelper 仓库的 main 分支**。该仓库根目录提供两端 marketplace，`plugins/snow-browser/` 提供可运行插件，`source/ModCDP` 子模块指向对应源码。ModCDP 源仓库只维护源码、构建和测试，不能把它的源码根目录当作已安装插件。
 
-| 使用范围 | Codex | Claude Code |
-| --- | --- | --- |
-| 当前项目 | `<项目>/.agents/skills/snow-browser/` | `<项目>/.claude/skills/snow-browser/` |
-| 当前用户的所有项目 | `~/.agents/skills/snow-browser/` | `~/.claude/skills/snow-browser/` |
+用户需准备 **Node ≥22**、已安装的雪诺浏览器，以及加载 MV3 扩展和使用 `chrome.debugger` 的权限。插件包含编译后的 JavaScript 和固定生产依赖；用户不执行 npm/pnpm install、不本地构建、不下载 Playwright Chromium。启动器校验当前 Node 和产物完整性，不切换 Node、不修改 PATH，不通过下载缓存复制修补缺失产物。
 
-安装后打开新会话，确认技能列表里存在 `snow-browser`。Codex 的 `agents/openai.yaml` 启用隐式调用；Claude Code 使用标准 `name`、`description` 元数据自动选择，未设置禁用自动调用的字段。两端共用同一份 `SKILL.md`，不依赖 Claude 专属变量、工具白名单或 Codex 专属执行工具。
+Codex：
 
-例如说“使用雪诺浏览器，读取我打开的页面标题”，应匹配本技能。也可以显式调用 Codex 的 `$snow-browser` 或 Claude Code 的 `/snow-browser`。自动选择由客户端根据 description 决定，不能把尚未安装的技能当成已生效。
+```sh
+codex plugin marketplace add itMrBoy/cdpHelper --ref main
+codex plugin add snow-browser@snow-browser-plugins
+```
 
-官方说明：[Codex 本地技能](https://learn.chatgpt.com/docs/build-skills)、[Claude Code 技能](https://code.claude.com/docs/en/skills)。
+Claude Code：
 
-## 定位运行环境
+```text
+/plugin marketplace add itMrBoy/cdpHelper
+/plugin install snow-browser@snow-browser-plugins
+```
 
-技能目录与 ModCDP 仓库可以分开。runner 从显式 `--repo`、已有 `MODCDP_ROOT`、当前工作目录的祖先、技能脚本的祖先定位仓库；显式路径错误时立即报错。全局安装后，通常需要传入 `--repo`。
+上述命令用于 cdpHelper 发布完成后的安装；当前远端分支与 Release 尚未发布，不能作为已经可用的安装承诺。安装后打开新会话，确认插件技能和 `snow_browser` MCP 服务已加载；仅复制技能不会安装服务。Codex 可能以 `snow-browser:snow-browser` 返回插件技能名。移除旧的独立同名技能可避免规则混用。
 
-仓库须包含根 `package.json`（`name: modcdp`）、`proxy-existing` 脚本，以及源代码或构建后的代理入口。Node 需 ≥ 22。Playwright 从该仓库的依赖解析，不依赖技能自身或临时任务目录中的 `node_modules`，版本须 ≥ 1.60。
+## 扩展单独安装
 
-缺少依赖时，使用仓库要求的 pnpm 版本，在仓库根目录执行：
+计划在 **cdpHelper Release** 的 `v0.1.0` tag 提供 `snow-browser-extension-v0.1.0.zip`（当前尚未发布）。发布后获取与插件版本匹配的独立扩展 ZIP，用户自行解压到稳定目录。在要控制的雪诺 profile 中打开扩展管理页（通常为 `chrome://extensions`），开启开发者模式，点击“加载已解压的扩展”，选择 **解压结果内含 `manifest.json` 的 `extension/` 子目录**，不要选择 ZIP 根目录。已有扩展更新时，由用户替换 Release 文件并手动重载。
+
+多个普通 profile 可加载同一份扩展文件；身份和连接配置由每个 profile 的扩展 storage 保存。插件不会接收本机扩展目录、下载扩展、从缓存复制扩展或向公共扩展目录写入连接凭据，也没有 `configure_extension` 工具。
+
+Computer Use 可启动雪诺，但不用于安装扩展或后续网页操作。浏览器/管理员禁止扩展或 `chrome.debugger` 时，插件不绕过该限制。
+
+## 选择与连接
+
+每个会话首次使用必须先调用 `browser_status`，展示已有实例的名称、短编号与状态，再在同一个问题中提供“选择已有实例”及“启动新的隔离实例”选项。不能先泛问模式再读取 inventory。读取清单不等于已选择或连接浏览器。
+
+所有 profile 使用统一的本机入口 **`127.0.0.1:29393/bridge`** 登记实例，不能用不同目录的扩展副本充当实例识别。
+
+- **复用**：inventory 以短编号展示多个已登记普通 profile；用户选定后，技能映射为 UUID，调用 `browser_select`，参数为 `{mode:"reuse", instance_id:"<UUID>"}`。没有登记实例时检查目标 profile 是否安装并启用了 Release 扩展，不自动选择别的浏览器。
+- **隔离**：调用 `browser_select`，参数为 `{mode:"isolated"}`，可选实际雪诺 `executable`。运行时启动独立 profile，通过一次性启动关联 URL 识别对应扩展；用户仍须在该 profile 手动加载扩展。不会复制现有 cookies、网站存储或已有 profile，不保证雪诺原生账号或系统级状态隔离。
+
+隔离所有权记录 ID 在保留及清理期间稳定；每次扩展重连都会产生新的连接 UUID。`browser_select` 使用当前 inventory 的连接 UUID，`browser_cleanup_retained` 使用 retained 记录的 `instance_id`，不能互换。
+
+端口监听、profile 登记、实例连接和页面可操作分别验证。profile 重连不能使旧 tab 引用恢复有效：断连后重新显示 inventory，由用户明确选择并重新绑定，不自动 rebind 或重放有副作用的操作。
+
+## 升级、结束与故障
+
+插件按整体产物升级，扩展 ZIP 独立更新并由用户重载。升级后的新会话或重新加载使用新版本；活动旧会话不强制中断。插件校验失败时重新安装完整同一版本，不在线安装缺失依赖或静默换版本。服务文件、记录和日志位于用户自己的 `~/.snow-browser/`，不修改用户项目。
+
+隔离结束前询问是否关闭并清理。用户拒绝、未答复或异常断开时保留窗口和 profile；后续状态显示保留记录，再明确确认后清理。只清理插件创建并核验归属的实例。复用浏览器和标签页始终保留。最后一个客户端退出后后台空闲回收，不自动关闭用户浏览器。
+
+端口被其他程序占用时报告占用，不结束未知进程。扩展未登记时核对安装 profile、启用状态和版本；实例失联时重新选择。MCP 日志写标准错误或用户日志，不能混入 stdio 协议输出。Node 缺失或低于22时由用户处理，不自动切换全局环境。
+
+## 源码开发与兼容入口
+
+源码开发者在 ModCDP 仓库使用：
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm run build:plugin
+pnpm run test:plugin
 ```
 
-仓库 `prepare` 会自动构建。连接已有浏览器不需要运行 `playwright install` 或下载新的浏览器。不要仅安装 production 依赖，因为 Playwright 是开发依赖。
+构建结果在 `dist/plugin-marketplace/`，用于组装 cdpHelper 的完整插件产物；独立扩展 ZIP 用于 cdpHelper Release。源码、测试和开发依赖不下发到插件运行目录，`source/ModCDP` 仅为开发者追溯源码的子模块。构建不是发布；提交分发仓库、更新子模块指针或上传 Release 应分别验证，不以其中一步成功代替完整验收。不发布自有 npm 包。
 
-## 复用或启动代理
+独立 checkout 的 `pnpm run proxy-existing` 与 `skills/snow-browser/scripts/run.mjs --repo <源码目录>` 保留兼容。它使用固定客户端端口9223、扩展端口29292，同一代理只允许一个 CDP 客户端顺序接入；该入口不提供插件的29393多 profile 登记、会话选择和隔离管理。
 
-先核对监听、PID、进程命令行与工作目录，复用已有正确代理。Windows 可按需查询：
-
-```powershell
-Get-NetTCPConnection -State Listen -LocalPort 9223,29292 -ErrorAction SilentlyContinue |
-  Select-Object LocalAddress,LocalPort,OwningProcess
-# 将实际监听 PID 代入：
-Get-CimInstance Win32_Process -Filter "ProcessId=<PID>" |
-  Select-Object ProcessId,ExecutablePath,CommandLine
-```
-
-没有正确代理时，在仓库根目录以当前环境支持的持久终端/后台任务方式运行：
-
-```sh
-pnpm run proxy-existing
-```
-
-该命令先普通构建，再开启 ReverseWS 重建扩展，最后直接执行 CLI，默认监听客户端 `http://127.0.0.1:9223`、扩展 `ws://127.0.0.1:29292`。Windows 若用 `Start-Process` 管理后台任务，使用隐藏窗口并保留 PID、日志路径；仅清理为本任务启动的进程，不按端口批量终止其他进程。
-
-构建会更新仓库中被 Git 跟踪的 `python/modcdp/extension.zip` 和 `go/modcdp/injector/extension.zip`。已有这些文件的未提交改动时，先确认其用途，优先复用正确构建；需要新构建而又无法保全本地改动时先说明阻碍。不要为启动代理顺手提交或丢弃用户文件。
-
-不要使用 `proxy-local`：它启动独立浏览器。也不要用普通 `pnpm run proxy`：它会重建默认扩展并关闭 ReverseWS。
-
-## 扩展接入
-
-雪诺浏览器尚未启动时，允许使用环境已有的 Computer Use（computerUse / 桌面自动化）启动它；若已运行则复用。Computer Use 的用途仅限启动，后续网页操作与网页截图统一通过 ModCDP + Playwright 完成，连接失败也不改用 Computer Use 操作网页。
-
-1. 确认用户要操作的雪诺浏览器已经打开。需要安装/重载扩展而当前允许的工具无法完成时，请用户按以下步骤操作；不要改用 Computer Use 操作扩展管理页。在支持的扩展管理页（通常为 `chrome://extensions`）开启开发者模式。
-2. 加载已解压扩展，选择当前 checkout 的 **`dist/extension` 绝对路径**，不要选源码 `extension/`。
-3. 已加载时确认扩展详情中的源目录并重载；另一 worktree 的已加载扩展不会被本次构建更新。
-4. 在雪诺浏览器中打开目标普通 HTTP/HTTPS 网页。内部页、被策略限制的页面不保证可调试。浏览器/管理员必须允许扩展安装及 `chrome.debugger`；本方案不绕过权限限制。
-5. 顺序执行 runner 的页面发现与任务。HTTP discovery 成功但连接超时，通常还需检查扩展 peer、构建开关、权限或其他 CDP 客户端。
-
-扩展安装和重载只能在实际雪诺浏览器上完成。无法从当前工具操作扩展管理页时，请用户完成上述具体步骤后继续，不用别的浏览器代替。
-
-## 任务文件约定
-
-```sh
-node "<技能目录>/scripts/run.mjs" --repo "<仓库目录>" --endpoint "http://127.0.0.1:9223" --task "<任务.mjs>"
-```
-
-`--task` 文件默认导出 async 函数，接收 `{ browser, context }`，可返回能 JSON 序列化的简短结果。省略 `--task` 只列出默认 context 的普通页面；单页标题读取超过 5 秒会记录错误并继续列举。runner 不启动代理、不安装扩展、不新建页面，并在任务成功或失败时断开客户端。支持 timeout 的 Playwright 操作默认等待 10 秒，导航默认 15 秒；按任务需要给具体操作设置合理 timeout，不使用无限等待。
-
-需要依赖额外 CDP 能力时，以实际命令结果为准。详情以 checkout 的 `README.zh-CN.md` 和 `js/scripts/verify-existing-playwright.mjs` 为准，后者包含截图、性能与 Trace 验收，会触发采集，普通浏览任务无需整套执行。
+ModCDP 上游尚未提供明确许可证；插件格式和测试通过不代表取得分发授权，不为上游代码虚构许可证。对外分发授权及第三方许可证义务需要另行核对。

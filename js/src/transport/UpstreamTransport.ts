@@ -1,7 +1,3 @@
-// MODCDP_TRANSLATE: KEEP THIS FILE TRANSLATED ACROSS TYPESCRIPT, PYTHON, AND GO.
-// Keep all shapes, signatures, behavior, and tests 1:1 in sync with:
-// - ./python/modcdp/transport/UpstreamTransport.py
-// - ./go/modcdp/transport/UpstreamTransport.go
 import type { z } from "zod";
 import type { LauncherConfig } from "../launcher/BrowserLauncher.js";
 import type { cdp } from "../types/generated/cdp.js";
