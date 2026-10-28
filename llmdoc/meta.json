@@ -1,36 +1,36 @@
 {
   "schema": "llmdoc.meta/v3",
   "baseline": {
-    "revision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f",
-    "verifiedAt": "2026-10-28T10:29:23.031Z"
+    "revision": "fcdea22ee071678563f7213f02def6cd0067e33a",
+    "verifiedAt": "2026-10-28T17:45:06.657Z"
   },
   "documents": {
     "browser/cdp-endpoint.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "fcdea22ee071678563f7213f02def6cd0067e33a"
     },
     "browser/worker-lifecycle.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "fcdea22ee071678563f7213f02def6cd0067e33a"
     },
     "connection/browser-lifecycle.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "fcdea22ee071678563f7213f02def6cd0067e33a"
     },
     "connection/transports.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "fcdea22ee071678563f7213f02def6cd0067e33a"
     },
     "development/build-and-validation.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "fcdea22ee071678563f7213f02def6cd0067e33a"
     },
     "development/sdk-parity.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "fcdea22ee071678563f7213f02def6cd0067e33a"
     },
     "protocol/command-execution.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "fcdea22ee071678563f7213f02def6cd0067e33a"
     },
     "protocol/session-routing.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "fcdea22ee071678563f7213f02def6cd0067e33a"
     },
     "connection/snow-plugin-runtime.mdx": {
-      "validatedRevision": null
+      "validatedRevision": "fcdea22ee071678563f7213f02def6cd0067e33a"
     }
   },
   "convergence": {
