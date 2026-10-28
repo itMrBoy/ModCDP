@@ -1,24 +1,13 @@
 ---
-description: MODCDP_TRANSLATE 跨语言同步、codegen 与运行时 schema 的维护责任；JS Python Go 能力差异和共享扩展 ZIP 不代表功能对齐。
+description: JS SDK 公开入口、launcher/injector 注册、Zod schema 与 CDP codegen 的维护权威；Python/Go 已移除，构建不等于协议升级。
 kind: reference
 code:
   paths:
     - js/src/index.ts
-    - python/modcdp/__init__.py
-    - go/modcdp/modcdp.go
     - js/src/types/codegen.ts
-    - python/modcdp/types/codegen.py
-    - go/modcdp/types/codegen.go
     - js/src/types/CDPTypes.ts
-    - python/modcdp/types/CDPTypes.py
-    - go/modcdp/client/CDPTypes.go
     - js/src/types/modcdp.ts
-    - python/modcdp/types/modcdp.py
-    - go/modcdp/types/types.go
-    - python/modcdp/types/jsonschema.py
     - js/src/types/toJSON.ts
-    - python/modcdp/types/toJSON.py
-    - go/modcdp/types/toJSON.go
 relations:
   requires:
     - protocol/command-execution.mdx
@@ -27,34 +16,20 @@ relations:
     - development/build-and-validation.mdx
 ---
 
-# SDK 对齐与生成维护
+# JS SDK 与协议生成维护
 
-修改跨语言公共协议前，先阅读命令执行所有者，确认 registry、线格式与特权表达式的权威边界。
+仓库仅维护 JS SDK、Node 代理及浏览器扩展；Python/Go 实现、测试、分发包和跨语言同步义务已移除。修改协议前先阅读命令执行所有者，确认 registry、线格式与特权表达式的权威边界。
 
-三种语言提供调用同一协议的客户端，不是必须同时启动的三套服务。浏览器端服务、Node 代理与扩展构建由 JS 实现；Go/Python 包中的扩展 ZIP 是共享产物。新增 Node 代理能力不能据此视为已移植到另外两种语言。
+## 公开入口与运行时能力
 
-JS async、Python blocking/awaitable facade 与 Go 同步接口加 reader goroutine 具有不同的执行模型。比较行为要检查响应关联、取消和监听生命周期，不能只比较签名拼写。
+公开入口不只是别名清单，还注册 launcher/injector 构造器。直接导入内部客户端与经公开入口使用可能具有不同的模式可用性；变更注册方式或默认入口时，应同时验证模式解析和构造器装配。
 
-## 同步义务与实际能力
-
-`MODCDP_TRANSLATE` 标记要求对应文件的形状、行为和测试同步，是变更审查契约，不是自动翻译器，也不是现状完全一致的证明。修改命令封装、路由、参数默认值或错误语义时，应检查其他语言的对应实现和测试；不能只改变类型声明而保留不同的运行时行为。
-
-公开入口不只是别名清单。JS 入口还注册 launcher/injector 构造器；直接导入内部客户端与经公开入口使用可能具有不同的模式可用性。变更注册方式、默认入口或语言导出时，应把模式解析和构造器装配一起验证。
-
-语言 SDK 的 schema 机制不同。JS 使用 Zod，Python 的模型和 JSON Schema 转换、Go 的运行时 schema 与类型表均有各自的规范化边界。公共线协议保持一致并不意味着可复制任意语言对象到另一端；schema 的序列化形状和客户端验证仍须分别检查。
+JS 使用 Zod 维护运行时 schema。类型声明、schema 序列化及实际校验须保持一致；只改变类型不能证明运行时协议兼容。SDK、插件 Broker 与扩展服务分别拥有自己的生命周期，打包在一起不等于可以相互代管清理。
 
 ## 生成物的权威来源
 
-JS codegen 从 `devtools-protocol` 生成标准 CDP 类型、运行时 schema 和调用别名，扩展的 Mod 类型来自手写协议定义。生成版本从既有生成头恢复；更换协议输入时要作为明确维护决策审查，不能手改生成体来掩盖差异。
+codegen 从 `devtools-protocol` 生成标准 CDP 类型、运行时 schema 和调用别名，扩展的 Mod 类型来自手写协议定义。生成版本从既有生成头恢复；更换协议输入是明确维护决策，不能手改生成体掩盖差异。
 
-普通 build 编译和打包已有协议面，不重新生成协议。升级输入与构建扩展是不同维护动作，不能把构建成功当成生成器已运行或跨语言协议已同步。
+普通 build 编译和打包已有协议面，不运行协议生成器。类型可用、schema 识别和浏览器实际支持是三件事；新增别名或生成标准命令不会扩大扩展调试权限或 browser-level 能力。标准 CDP 与 Custom/Mod 的执行及局部校验豁免由 `protocol/command-execution.mdx` 维护。
 
-Python 和 Go 的 codegen 入口尚未实现，运行它们不会完成自动同步。修复前，协议升级必须明确如何更新这些语言的已有生成面并验证其行为；不能因文件带有 generated 标记就假设工具链完整。
-
-类型可用、schema 识别和浏览器实际支持是三件不同的事。新增别名或生成标准命令不会扩大扩展调试 API 的权限与 browser-level 能力。标准 CDP 与 Custom/Mod 的执行及校验边界由 `protocol/command-execution.mdx` 维护。
-
-## 变更审查原则
-
-共享 ZIP 只由扩展资源构建链更新；SDK 逻辑修复不能以更新 ZIP 代替。反过来，ZIP 改变也不能自动要求复制 Node 代理接口到其他语言。先判断改动属于公共线协议、某语言客户端能力，还是共享浏览器服务，再选择需要同步和验收的边界。
-
-各 manifest、导出和测试是当前能力的权威来源；这里不维护依赖版本表或生成文件清单。对齐结论必须指出被验证的语言及链路，不能把某语言成功外推到全部 SDK。
+manifest、导出和测试是当前能力的权威来源；这里不维护版本表和生成文件清单。对齐结论须指出被验证的实际调用链，不能把 SDK、插件或某浏览器上的成功外推到所有接入方式。

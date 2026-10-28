@@ -14,10 +14,6 @@ code:
     - js/src/transport/NATSDownstreamTransport.ts
     - js/src/transport/NativeMessagingUpstreamTransport.ts
     - js/src/transport/NativeMessagingDownstreamTransport.ts
-    - python/modcdp/transport/UpstreamTransport.py
-    - python/modcdp/transport/WSUpstreamTransport.py
-    - go/modcdp/transport/UpstreamTransport.go
-    - go/modcdp/transport/WSUpstreamTransport.go
 relations:
   related:
     - connection/browser-lifecycle.mdx
@@ -34,9 +30,9 @@ Upstream 是调用方发命令的接口，peer 既可能是原生 browser CDP，
 
 `connect`、监听已建立、peer 已到达和 Mod 配置成功是不同状态。浏览器 CDP 的 WS/Pipe 连接可直接承载目标协议；server peer 还需要相应握手及配置，不能按同一条初始化路径假设。
 
-ReverseWS 在 Node 建立 listener，扩展连接后先发送 hello。hello 识别本协议 peer，不是完整的身份认证或权限授权；监听应放在预期信任边界内。一个新 peer 可替换旧 peer，等待者还可要求在某时间点之后建立的新连接，避免把陈旧 peer 当作重连成功。
+ReverseWS 在 Node 建立 listener，扩展连接后先发送 hello。hello 识别本协议 peer，不是完整的身份认证或权限授权；监听应放在预期信任边界内。通用模式允许新 peer 替换旧 peer，调用方也可关闭替换。雪诺插件通过统一 loopback bridge 登记多个 profile，再按实例身份分配连接，不能用“同一个监听端口”推断它们是同一实例，也不能让新 peer 冒名替换另一 profile。实例登记、一次性启动关联及 profile storage 的权属由插件运行时维护。等待者还可要求在某时间点之后建立的新连接，避免把陈旧 peer 当作重连成功。
 
-等待必须有界，关闭时取消等待者并清除计时器。Native Messaging 依赖宿主安装与协议；NATS 依赖其外部服务。声明某个 transport 可选或编译启用不代表这些前提已经满足；Python/Go 的 WS 客户端也不能据此宣称具备 JS 的全部连接器。
+等待必须有界，关闭时取消等待者并清除计时器。Native Messaging 依赖宿主安装与协议；NATS 依赖其外部服务。声明某个 transport 可选或编译启用不代表这些前提已经满足。
 
 Pipe 使用 JSON 加 NUL 分帧，Native Messaging 使用小端长度前缀加 JSON；Node 的协议 stdio 不得混入普通日志。NATS 的 request/reply subject 与事件广播分开，不能把广播事件通路当作带关联的响应通路。
 

@@ -4,8 +4,6 @@ kind: architecture
 code:
   paths:
     - js/src/router/AutoSessionRouter.ts
-    - python/modcdp/router/AutoSessionRouter.py
-    - go/modcdp/router/AutoSessionRouter.go
 relations:
   related:
     - protocol/command-execution.mdx
@@ -15,7 +13,7 @@ relations:
 
 # 会话图与执行上下文路由
 
-`AutoSessionRouter` 拥有浏览器 target、真实 CDP session、frame 和 execution context 的可变关系；三种语言均有对应实现。它根据浏览器事件维护图，并为命令按需获取可用路由。传输只交付消息，translate 只封装消息；两者都不能取代此处的状态所有权。
+`AutoSessionRouter` 拥有浏览器 target、真实 CDP session、frame 和 execution context 的可变关系。它根据浏览器事件维护图，并为命令按需获取可用路由。传输只交付消息，translate 只封装消息；两者都不能取代此处的状态所有权。
 
 ## 身份不能混用
 
@@ -39,4 +37,4 @@ Router 发现或附加目标后记录 session；Runtime 与 Page 事件补充上
 
 main world 与 isolated world 是明确选择；选择命名 world 必须保持 frame/session 匹配。DOM root、Shadow DOM 或 iframe 的关系来自当前浏览器图，不能把采样结果跨导航当作可复用定位身份。
 
-修改图维护时应覆盖三种语言的同类事件与取消语义；扩展 CDP endpoint 的合成前端会话是另一个所有权模型，由 `browser/cdp-endpoint.mdx` 维护，不能混入本 Router 的真实 browser graph。
+修改图维护时应覆盖相关事件与取消语义；扩展 CDP endpoint 的合成前端会话是另一个所有权模型，由 `browser/cdp-endpoint.mdx` 维护，不能混入本 Router 的真实 browser graph。插件会话和 tab 占用则由 `connection/snow-plugin-runtime.mdx` 维护，不是 CDP session 的替代身份。

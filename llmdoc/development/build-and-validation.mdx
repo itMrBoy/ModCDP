@@ -1,5 +1,5 @@
 ---
-description: 扩展重载、ReverseWS 构建开关与 shared extension ZIP 的一致性；何时重建、如何区分测试验收与 npm 发布责任。
+description: JS SDK 与扩展构建、ReverseWS 开关、cdpHelper main 插件市场及独立 Release 扩展分发边界；区分自动检查与真实宿主、雪诺验收。
 kind: guide
 code:
   paths:
@@ -7,43 +7,41 @@ code:
     - paseo.json
     - tsconfig.json
     - js/scripts/build-extension-assets.mjs
+    - js/scripts/build-plugin.mjs
+    - plugin/version.json
     - .pre-commit-config.yaml
     - .github/workflows/test.yml
     - .github/workflows/lint.yml
-    - .github/workflows/release.yml
 relations:
   related:
     - development/sdk-parity.mdx
     - browser/worker-lifecycle.mdx
     - browser/cdp-endpoint.mdx
+    - connection/snow-plugin-runtime.mdx
 ---
 
 # 构建产物与验收边界
 
-适用于改动浏览器扩展、代理启动入口、SDK 分发或发布流程。命令和版本以 `package.json`、各语言 manifest 与 README 为准；这里维护容易在重复操作中破坏的构建顺序和成功判据。
+仓库维护 JS SDK、浏览器扩展与 Codex/Claude Code 插件。命令和版本以 manifest、构建脚本及 README 为准；这里维护构建顺序、产物权属和验收边界。Python/Go SDK 及其 ZIP 副本、专属检查不再属于构建链。
 
 ## 选择并完成同一种构建
 
-Node 工具链生产各语言共用的浏览器端服务。普通安装通过 `prepare` 执行构建；不要新增再次调用安装的 `install` 生命周期入口。构建中的 Python README 步骤只检查文件存在，不要求 Python 运行时。
+普通安装通过 `prepare` 构建 JS 包和扩展，不要新增再次调用安装的 `install` 生命周期入口。普通构建不重新生成协议，也不代表已构建插件。
 
-先决定是否需要扩展主动连接 ReverseWS 或 NATS。它们是资源编译时开关，普通 `build` 会关闭，并不是可以经 `Mod.configure` 随时开启的服务器配置。
+ReverseWS 与 NATS 是资源编译时开关，普通 `build` 会关闭。已有浏览器启动入口必须先完成普通构建，再以 ReverseWS 开关重建扩展，最后直接执行代理 CLI；再次调用普通构建会覆盖开关。Paseo 快捷入口应复用根脚本。
 
-已有浏览器启动入口必须先完成普通构建，再以 ReverseWS 开关重建扩展资源，最后直接执行构建后的代理 CLI。若最后改为再次调用会执行普通构建的入口，刚选定的开关就会被覆盖。快捷入口应复用根脚本，避免 Paseo 与命令行各自维护一份参数。
+扩展资源构建同时产生可加载目录和归档。构建不是事务：失败后应重新完成整条链，不能分发新旧混合产物；跨平台归档字节不保证完全相同。浏览器须加载对应产物目录，重建不 watch、不自动重载，也不更新另一 worktree 装载的扩展。
 
-资源脚本从同一次构建产生 `dist/extension` 与 ZIP，并把归档复制给 Python、Go 包。构建不是事务：编译或归档失败后，不应发布部分更新的目录或新旧混合的 ZIP。修复后重新完成整条链；跨平台归档字节也不保证完全相同。
+## 插件是完整可搬运的产物
 
-## 对齐实际加载位置
+插件构建生成 `dist/plugin-marketplace`，提供 Codex 与 Claude Code 的 marketplace/plugin 配置、技能、入口和生产运行依赖；浏览器扩展为独立 Release ZIP，由用户自行下载并手动加载。构建端解析依赖闭包并物化文件，客户端不依赖源码 checkout、pnpm 符号链接或安装脚本，也不下载 Playwright 浏览器。插件不能接收扩展目录或下载、复制扩展来配置实例。
 
-浏览器必须加载当前 checkout 的 `dist/extension`。源码目录 `extension/` 不可替代可加载产物；重建也不会更新另一 worktree 已装载的目录。
+插件使用的扩展以 ReverseWS 构建；普通构建不能替代该步骤。入口校验随包文件并运行完整产物，不通过下载或缓存复制修补依赖；客户端只使用用户提供的 Node ≥ 22，不自动切换 Node 或修改 PATH。依赖、版本或入口变化时应重建完整插件，不能单独替换已校验文件。profile 的连接身份位于扩展 storage，公共扩展目录不是实例配置写入点。
 
-构建脚本不 watch、不自动重载扩展。资源改变后应重载实际装载的扩展，并重新建立连接。发布或打包 SDK 前，核对加载目录、归档及两个语言包副本属于所选构建，避免把本地可选连接方式作为默认产物分发。
-
-ZIP 同步仅证明共享浏览器端服务一致，不能证明三个客户端 SDK 的能力或原生传输实现一致；语言维护边界见 `development/sdk-parity.mdx`。
+唯一插件分发入口为 cdpHelper 的 main 分支：仓库根维护两端 marketplace，`plugins/snow-browser` 放完整产物，`source/ModCDP` 子模块指向可追溯源码提交。ModCDP 源仓只维护源码、构建和测试，扩展 ZIP 独立放 cdpHelper Release，不使用 plugin-dist 分支。更新 main 产物、子模块指针和 Release 附件是不同交付步骤；构建成功不等于它们已发布或验收。源码提交与构建来源、插件/扩展版本及校验值须一致，不能只提交不可追溯的产物。仓库不通过 npm 分发本插件。
 
 ## 验证到所需责任边界
 
-选择与改动相关的静态检查和真实链路测试。测试浏览器、用户已运行的浏览器、云端浏览器及原生宿主具有不同前提；一类测试通过不能替代另一类验收。端口可访问只证明入口存在，页面操作必须越过扩展连接、权限和目标会话边界。
+静态检查、自动化协议/插件测试、真实宿主加载、独立测试浏览器和真实雪诺是不同验收范围。端口可访问只证明入口存在；页面操作还须越过扩展登记、调试权限和目标会话边界。reuse 与 isolated 均须按所选 profile 完成真实页面验收，不能以其中一种成功替代另一种。旧的专属目录/动态端口测试成功不能直接证明新的统一登记契约通过；SDK 直连也不能证明宿主解析清单正确。子模块可递归拉取、指针对应源码、main 市场安装和 Release 附件完整性同样须分别验收，不提前宣称通过。
 
-完整测试有固定资源和外部服务依赖。CI 将语言组、连接器与反向连接组分开调度；本地执行也要避免冲突，不能仅以一个通用命令推断全部能力已覆盖。正常 hooks 保留；未安装 hook 时应明确说明实际手动执行的检查。
-
-发布工作流只拥有 npm 分发，且受仓库和触发条件约束；它不自动发布 Python 或 Go 包。不要用发布动作验证本地改动。最终报告应分别说明构建成功、自动回归和真实浏览器验收的范围，留下未满足的外部前提。
+完整测试可能依赖外部服务和固定资源；本地执行应避免端口、浏览器和前端连接冲突。保留正常 hooks；未安装 hook 时明确实际执行的手动检查。报告分别说明构建、自动回归、真实浏览器操作及尚未满足的外部前提。

@@ -28,6 +28,9 @@
     },
     "protocol/session-routing.mdx": {
       "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+    },
+    "connection/snow-plugin-runtime.mdx": {
+      "validatedRevision": null
     }
   },
   "convergence": {

@@ -4,6 +4,8 @@ kind: architecture
 code:
   paths:
     - extension/src/service_worker.ts
+    - extension/src/pages/options.ts
+    - extension/src/pages/options.html
     - extension/src/pages/offscreen_keepalive.ts
     - extension/manifest.json
     - js/src/server/ModCDPServer.ts
@@ -17,13 +19,17 @@ relations:
 
 # 扩展服务的启动与保活
 
-共享浏览器服务运行于扩展的 MV3 service worker，而不是页面脚本。`extension/src/service_worker.ts` 只负责构造并启动 JS `ModCDPServer`；权限由扩展清单和实际浏览器策略决定。共享服务入口不能根据某个语言 SDK 的安装状态推断浏览器端能力。
+浏览器服务运行于扩展的 MV3 service worker，而不是页面脚本。`extension/src/service_worker.ts` 读取当前 profile 的扩展 storage 配置，构造并启动 JS `ModCDPServer`；权限由扩展清单和实际浏览器策略决定。Node 依赖安装成功不能证明浏览器端能力可用。
+
+MV3 扩展 worker 不支持模块顶层 `await`；读取 bridge 配置必须放在异步启动函数内，再从同步模块入口调用并记录启动错误。TypeScript 编译或打包成功不能替代真实浏览器的 worker 启动验证。
 
 ## 启动选择先于远端配置
 
 ReverseWS 与 NATS 的启用值由资源构建注入；服务器据此决定要创建哪些 downstream。Native Messaging 是默认候选，但其宿主是否可用是另一前提。`Mod.configure` 更新已有服务的客户端、路由、注册项和 transport 配置，不负责把未编入启动选择的连接方式凭空启用。
 
 这个边界避免普通扩展默认尝试所有本地可选服务。调整启动方式需重建扩展资源并重载浏览器实际装载的目录；仅重启 Node 代理或发送运行时配置不足以替换旧 worker 的代码和选项。
+
+插件扩展从独立 Release ZIP 由用户手动安装；多个 profile 可以加载同一份扩展文件，连接身份和配置保存在各自 storage，不能由插件向公共扩展目录写入 `bridge-config.json`。普通 profile 向统一的 `127.0.0.1:29393/bridge` 登记为独立实例；隔离启动以一次性 URL 关联对应 profile。配置只选择连接和身份，不开启未编译的 transport，不代替用户安装、重载或调试权限。独立 SDK 代理的既有连接配置仍属于兼容入口，不与插件实例登记混为一谈。
 
 ## 服务、监听和连接是不同状态
 
