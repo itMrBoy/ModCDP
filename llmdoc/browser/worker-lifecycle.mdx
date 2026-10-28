@@ -1,0 +1,38 @@
+---
+description: MV3 service worker startup、offscreen keepalive 与扩展重载；ReverseWS/NATS 编译选择为何不属于 Mod.configure，worker 存活与 peer 连接如何区分。
+kind: architecture
+code:
+  paths:
+    - extension/src/service_worker.ts
+    - extension/src/pages/offscreen_keepalive.ts
+    - extension/manifest.json
+    - js/src/server/ModCDPServer.ts
+    - js/test/test.ExtensionStartup.ts
+relations:
+  related:
+    - protocol/command-execution.mdx
+    - connection/transports.mdx
+    - development/build-and-validation.mdx
+---
+
+# 扩展服务的启动与保活
+
+共享浏览器服务运行于扩展的 MV3 service worker，而不是页面脚本。`extension/src/service_worker.ts` 只负责构造并启动 JS `ModCDPServer`；权限由扩展清单和实际浏览器策略决定。共享服务入口不能根据某个语言 SDK 的安装状态推断浏览器端能力。
+
+## 启动选择先于远端配置
+
+ReverseWS 与 NATS 的启用值由资源构建注入；服务器据此决定要创建哪些 downstream。Native Messaging 是默认候选，但其宿主是否可用是另一前提。`Mod.configure` 更新已有服务的客户端、路由、注册项和 transport 配置，不负责把未编入启动选择的连接方式凭空启用。
+
+这个边界避免普通扩展默认尝试所有本地可选服务。调整启动方式需重建扩展资源并重载浏览器实际装载的目录；仅重启 Node 代理或发送运行时配置不足以替换旧 worker 的代码和选项。
+
+## 服务、监听和连接是不同状态
+
+首次 `start()` 安装服务、默认命令、转发和生命周期监听，连接浏览器 upstream；重复调用会再次尝试保活和客户端轮询，不重复建立完整服务注册。浏览器启动、安装和 tab 创建等事件会触发该入口。一次入口被调用并不表示每个异步启动步骤都成功；连接状态仍要由实际 peer 和命令确认。
+
+服务使用 offscreen document 与命名 runtime port 发送 keepalive，尽量维持 worker 活跃。offscreen 能力可能不存在或创建失败；保活是运行机制，不是 worker 永不退出的承诺，也不是 ReverseWS 永久在线的证明。worker 重建、扩展重载或连接断开后，远端应重新建立所需的配置与会话。
+
+## 配置和可观测性的边界
+
+共享 server 是 `Mod.configure`、命令注册与 middleware 的权威执行者。状态页只是它的消费者；页面展示不能代替协议握手和真实请求成功。生命周期变更应同时检查 entry、server、offscreen 与 manifest，使资源路径、消息/port 名称及权限继续一致。
+
+构建和重载没有跨 worktree 自动同步机制。运维成功条件是预期目录中的新扩展已装载、所选 downstream 已建立 peer，并且实际命令可用；仅有新 ZIP、状态树或监听端口不能满足这些条件。

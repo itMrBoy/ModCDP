@@ -1,0 +1,57 @@
+---
+description: Playwright noDefaults 连接禁用了对外 CDP 接口的浏览器；多个 CDP 客户端只支持顺序接入的并发限制、持久 ReverseWS、flattened session 与 chrome.debugger 权限边界。
+kind: architecture
+code:
+  paths:
+    - js/src/proxy/proxy.ts
+    - js/src/proxy/cli.ts
+    - js/src/server/ChromeDebuggerCDPAdapter.ts
+    - js/src/transport/ChromeDebuggerUpstreamTransport.ts
+    - js/test/test.ExistingReverseProxy.ts
+    - js/scripts/verify-existing-playwright.mjs
+relations:
+  requires:
+    - connection/transports.mdx
+  related:
+    - connection/browser-lifecycle.mdx
+    - protocol/command-execution.mdx
+    - browser/worker-lifecycle.mdx
+---
+
+# 面向普通 CDP 客户端的扩展入口
+
+修改桥接前先阅读 transport 所有者，区分 listener、peer、pending 请求与消息来源；这些前提决定此处的持久连接和断开语义。
+
+Node 代理将普通 CDP WebSocket 与共享扩展服务连接，浏览器 adapter 在 `chrome.debugger` 能力范围内提供 browser target 和 flattened session。它使禁用了对外 CDP 接口的浏览器可复用标准客户端；它不创建完整的原生浏览器 CDP，也不能绕过扩展安装、调试权限或目标可见性限制。
+
+## 两层生命周期
+
+普通代理连接为每个前端构造客户端，按 launcher 配置连接或启动浏览器。已有浏览器模式使用 `launcher=none` 和 `upstream=reversews`：代理先建立反向监听，并在整个代理生命周期保留同一个扩展 peer，包括没有前端的时候。
+
+多个 CDP 客户端只支持顺序接入：持久模式只允许一个 CDP 前端同时连接，第二个并发连接被明确拒绝。这个并发限制属于代理的前端会话所有权，支持顺序连接不代表并发隔离。前端断开会取消桥接请求并通知扩展重置 adapter，保留 ReverseWS 监听和独立运行的浏览器。代理整体退出才释放它拥有的连接资源。
+
+断开通知是 ReverseWS bridge 的私有生命周期消息，不属于公开 `Mod.*` 命令。扩展等待在途请求后 reset，后续请求等待 reset 完成；公开前端 session 状态不能跨连接继续使用。
+
+HTTP discovery 返回的是代理合成的 browser endpoint，不是真实页面列表。`/json/version` 成功只证明监听可用；扩展连接、配置握手和目标操作仍可能失败。
+
+## 保持线序而不是重新调度
+
+持久桥接给前端请求分配独立的负 ID，代理内部请求使用自己的 ID 空间，收到响应后还原前端 ID。响应和事件按 upstream 接收顺序转发；不能把响应改为等待 typed `send()`、同时同步转发事件，否则 Runtime 事件可能越过 frame-tree 响应，使客户端丢失 execution context。
+
+请求超时应返回关联原 ID 与 session 的错误，连接关闭要清除计时器和待处理请求。超时不会证明浏览器命令已取消，也不能自动重试具有副作用的操作。
+
+## Adapter 与原生 debugger 的权责
+
+`ChromeDebuggerCDPAdapter` 拥有合成 browser target、前端会话、发现/自动附加状态和 session 层级。`ChromeDebuggerUpstreamTransport` 拥有原生 debuggee 选择、附加、事件来源及底层命令。两者各自记账，不能用合成 sessionId 直接替代原生 debugger session。
+
+原生 child session 必须与所属 root debuggee 一起使用。OOPIF 缺少 parentFrameId 时需先读取真实 child frame tree 再发布 attached 事件；不能用虚构父 frame 或提前事件填补客户端的 frame graph。
+
+只支持 flattened attach。普通 profile 中可见且可调试的 tab 和引擎允许的子目标可进入此模型；内部页面、隔离 browser context 和任意 browser-scoped 命令不因代理存在而变得可用。未知 session 和不支持的浏览器命令要明确失败，不能伪造成功结果。
+
+调试附加还区分 owned 与 borrowed。重置优先解除本 adapter 拥有的根附加，以释放暂停子目标；借用的连接只做必要恢复。不要在解除根附加前逐页等待 Runtime 调用，否则失去响应的 renderer 会拖住清理和后续连接。原生层遇到“已被附加”时必须证明当前扩展确实能使用该会话，不能吞掉其他调试器占用错误。
+
+## 客户端与验收边界
+
+Playwright 的 `connectOverCDP` 使用 `noDefaults: true`，避免默认初始化依赖本入口没有的 browser-level 能力。优先复用默认 context；创建隔离 context 需要原生浏览器 CDP。版本信息只能从当前环境取得，扩展无法获得的 revision 和运行时版本保持未知，不能借用其他安装的浏览器值。
+
+验收应依次越过监听、ReverseWS peer、扩展配置、普通页面 evaluate/DOM 和所需的截图或性能采集边界。某个已验证客户端操作不代表其他 CDP 工具和所有命令都兼容。已有浏览器的真实验收与独立测试浏览器回归必须分别报告，不能互相代替。

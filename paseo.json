@@ -1,0 +1,19 @@
+{
+  "worktree": {
+    "setup": "pnpm install --frozen-lockfile"
+  },
+  "scripts": {
+    "install": {
+      "command": "pnpm install --frozen-lockfile"
+    },
+    "build": {
+      "command": "pnpm run build"
+    },
+    "proxy-local": {
+      "command": "pnpm run proxy-local"
+    },
+    "proxy-existing": {
+      "command": "pnpm run proxy-existing"
+    }
+  }
+}

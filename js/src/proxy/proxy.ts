@@ -26,7 +26,7 @@ import { NativeMessagingUpstreamTransport } from "../transport/NativeMessagingUp
 import { PipeUpstreamTransport } from "../transport/PipeUpstreamTransport.js";
 import { ReverseWSUpstreamTransport } from "../transport/ReverseWSUpstreamTransport.js";
 import { parseHostPort, type UpstreamTransportConfig } from "../transport/UpstreamTransport.js";
-import { CdpCommandMessageSchema } from "../types/modcdp.js";
+import { CdpCommandMessageSchema, type CdpCommandMessage } from "../types/modcdp.js";
 import type { ModCDPClientConfig } from "../client/ModCDPClient.js";
 
 browser_launcher_constructors.set("local", LocalBrowserLauncher);
@@ -78,6 +78,71 @@ async function startProxy({
 }: StartProxyConfig = {}) {
   const { WebSocketServer } = await loadWsForProxy();
   const active_clients = new Set<ModCDPClient>();
+  // Existing-browser reverse mode owns its listener for the whole proxy lifetime,
+  // including periods without a CDP client. Other launcher modes stay lazy.
+  const persistent_client =
+    String(upstream.upstream_mode) === "reversews" && launcher.launcher_mode === "none"
+      ? new ModCDPClient({
+          launcher,
+          upstream,
+          injector,
+          router,
+          server_config,
+          client_config: { client_hydrate_aliases: false, ...client_config },
+        })
+      : null;
+  let persistent_socket: WebSocket | null = null;
+  let persistent_ready: Promise<unknown> | null = null;
+  let next_bridge_id = -1;
+  const bridge_requests = new Map<
+    number,
+    {
+      socket: WebSocket;
+      request: CdpCommandMessage;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  const clearBridgeRequests = (socket?: WebSocket) => {
+    for (const [id, pending] of bridge_requests) {
+      if (socket && pending.socket !== socket) continue;
+      clearTimeout(pending.timer);
+      bridge_requests.delete(id);
+    }
+  };
+  if (persistent_client) {
+    await persistent_client.upstream.connect();
+    console.log("ReverseWS listener ready; waiting for the existing browser extension.");
+    persistent_client.upstream.onClose((error) => {
+      persistent_ready = null;
+      clearBridgeRequests();
+      persistent_socket?.close(1011, error.message.slice(0, 120));
+    });
+    // Forward responses and events in their received wire order. Awaiting a
+    // typed send() for responses while forwarding events synchronously lets a
+    // batched Runtime event overtake Page.getFrameTree and loses its context.
+    persistent_client.upstream.onRecv((message) => {
+      if ("id" in message) {
+        const pending = bridge_requests.get(message.id);
+        if (!pending) return; // Positive IDs belong to the proxy's own client.
+        bridge_requests.delete(message.id);
+        clearTimeout(pending.timer);
+        if (pending.socket.readyState !== pending.socket.OPEN) return;
+        if (message.error)
+          console.error(
+            `[ModCDP proxy] ${pending.request.method} session=${pending.request.sessionId ?? "browser"}: ${message.error.message}`,
+          );
+        pending.socket.send(
+          JSON.stringify({
+            ...message,
+            id: pending.request.id,
+            ...(pending.request.sessionId ? { sessionId: pending.request.sessionId } : {}),
+          }),
+        );
+      } else if (persistent_socket?.readyState === persistent_socket?.OPEN) {
+        persistent_socket?.send(JSON.stringify(message));
+      }
+    });
+  }
   const http_server = http.createServer((req, res) => {
     const request_url = req.url === "/json/version/" ? "/json/version" : req.url;
     if (request_url === "/json/version") {
@@ -107,6 +172,63 @@ async function startProxy({
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   });
   wss.on("connection", (socket) => {
+    if (persistent_client) {
+      if (persistent_socket && persistent_socket.readyState !== persistent_socket.CLOSED) {
+        socket.close(1013, "This reverse proxy supports one CDP client at a time.");
+        return;
+      }
+      persistent_socket = socket;
+      socket.on("close", () => {
+        if (persistent_socket === socket) {
+          persistent_socket = null;
+          clearBridgeRequests(socket);
+          (persistent_client.upstream as ReverseWSUpstreamTransport).frontendDisconnected();
+        }
+      });
+      const ready = (persistent_ready ??= persistent_client.connect().catch((error: unknown) => {
+        persistent_ready = null;
+        throw error;
+      }));
+      void ready.catch((error: unknown) => {
+        console.error(`[ModCDP proxy] extension connect failed: ${errorMessage(error)}`);
+        socket.close(1011, errorMessage(error).slice(0, 120));
+      });
+      socket.on("message", (raw) => {
+        void ready
+          .then(() => {
+            if (socket.readyState !== socket.OPEN) return;
+            const request = CdpCommandMessageSchema.parse(JSON.parse(String(raw)));
+            const id = next_bridge_id--;
+            const timer = setTimeout(() => {
+              bridge_requests.delete(id);
+              if (socket.readyState === socket.OPEN)
+                socket.send(
+                  JSON.stringify({
+                    id: request.id,
+                    ...(request.sessionId ? { sessionId: request.sessionId } : {}),
+                    error: {
+                      code: -32000,
+                      message: `${request.method} timed out after ${persistent_client.config.client_cdp_send_timeout_ms}ms`,
+                    },
+                  }),
+                );
+            }, persistent_client.config.client_cdp_send_timeout_ms);
+            bridge_requests.set(id, { socket, request, timer });
+            try {
+              persistent_client.upstream.send({ ...request, id });
+            } catch (error) {
+              clearTimeout(timer);
+              bridge_requests.delete(id);
+              throw error;
+            }
+          })
+          .catch((error: unknown) => {
+            console.error(`[ModCDP proxy] request failed: ${errorMessage(error)}`);
+            socket.close(1011, errorMessage(error).slice(0, 120));
+          });
+      });
+      return;
+    }
     void connectDownstream(
       socket,
       {
@@ -126,8 +248,18 @@ async function startProxy({
       active_clients,
     );
   });
-  await new Promise<void>((resolve) => http_server.listen(proxy_listen_port, proxy_listen_host, () => resolve()));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      http_server.once("error", reject);
+      http_server.listen(proxy_listen_port, proxy_listen_host, () => resolve());
+    });
+  } catch (error) {
+    await persistent_client?.close();
+    throw error;
+  }
   const close = async () => {
+    clearBridgeRequests();
+    await persistent_client?.close().catch(() => {});
     for (const client of active_clients) await client.close().catch(() => {});
     active_clients.clear();
     for (const socket of wss.clients) socket.close();
@@ -188,6 +320,7 @@ async function handleDownstreamMessage(socket: WebSocket, cdp: ModCDPClient, raw
   const message = CdpCommandMessageSchema.parse(JSON.parse(String(raw)));
   try {
     const result = await cdp.send(message.method, message.params ?? {}, message.sessionId ?? null);
+    if (socket.readyState !== socket.OPEN) return;
     socket.send(
       JSON.stringify({
         id: message.id,
@@ -196,6 +329,8 @@ async function handleDownstreamMessage(socket: WebSocket, cdp: ModCDPClient, raw
       }),
     );
   } catch (error) {
+    if (socket.readyState !== socket.OPEN) return;
+    console.error(`[ModCDP proxy] ${message.method} session=${message.sessionId ?? "browser"}: ${errorMessage(error)}`);
     socket.send(
       JSON.stringify({
         id: message.id,

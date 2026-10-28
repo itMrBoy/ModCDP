@@ -12,14 +12,15 @@ import { ModCDPClient, upstream_transport_constructors } from "../client/ModCDPC
 import { ModCDPConfigureParamsSchema, ModCDPServerConfigSchema } from "../types/modcdp.js";
 import { routeFor } from "../translate/translate.js";
 import { ChromeDebuggerUpstreamTransport } from "../transport/ChromeDebuggerUpstreamTransport.js";
+import { ChromeDebuggerCDPAdapter } from "./ChromeDebuggerCDPAdapter.js";
 import { DownstreamTransportSet } from "../transport/DownstreamTransportSet.js";
 import { NativeMessagingDownstreamTransport } from "../transport/NativeMessagingDownstreamTransport.js";
 import { NATSDownstreamTransport } from "../transport/NATSDownstreamTransport.js";
 import { ReverseWSDownstreamTransport } from "../transport/ReverseWSDownstreamTransport.js";
 import { modCDPToJSON } from "../types/toJSON.js";
 import type {
+  CdpEventMessage,
   CdpResponseMessage,
-  ModCDPConfigureParams,
   ModCDPCustomCommandRegistration,
   ModCDPCustomEventRegistration,
   ModCDPMiddlewareRegistration,
@@ -31,6 +32,11 @@ import type {
 } from "../types/modcdp.js";
 
 type MiddlewarePhase = "request" | "response" | "event";
+
+type ModCDPServerStartupOptions = {
+  enable_reversews?: boolean;
+  enable_nats?: boolean;
+};
 
 type ModCDPGlobalScope = typeof globalThis &
   Record<string, unknown> & {
@@ -71,8 +77,14 @@ class ModCDPServer {
 
   private creating_offscreen_keep_alive: Promise<void> | null = null;
   private offscreen_keep_alive_port: chrome.runtime.Port | null = null;
+  private readonly startup_options: Required<ModCDPServerStartupOptions>;
+  private cdp_adapter: ChromeDebuggerCDPAdapter | null = null;
 
-  constructor(config: z.input<typeof ModCDPServerConfigSchema> = {}) {
+  constructor(config: z.input<typeof ModCDPServerConfigSchema> = {}, startup_options: ModCDPServerStartupOptions = {}) {
+    this.startup_options = {
+      enable_reversews: startup_options.enable_reversews ?? false,
+      enable_nats: startup_options.enable_nats ?? false,
+    };
     config = ModCDPServerConfigSchema.parse(config);
     this.server_browser_token = config.server_browser_token ?? null;
     this.started_at = null;
@@ -124,13 +136,10 @@ class ModCDPServer {
   async start(): Promise<this> {
     if (this.started_at === null) {
       this.started_at = new Date().toISOString();
-      for (const transport of [
-        new ReverseWSDownstreamTransport(),
-        new NativeMessagingDownstreamTransport(),
-        new NATSDownstreamTransport(),
-      ]) {
-        this.downstream.add(transport);
-      }
+      if (this.startup_options.enable_reversews)
+        this.downstream.add(new ReverseWSDownstreamTransport(() => this.cdp_adapter?.reset() ?? Promise.resolve()));
+      this.downstream.add(new NativeMessagingDownstreamTransport());
+      if (this.startup_options.enable_nats) this.downstream.add(new NATSDownstreamTransport());
       this.downstream.mirrorEventsFrom(this.client, {
         transformEvent: async (message) => {
           const cdpSessionId = message.sessionId ?? null;
@@ -138,9 +147,13 @@ class ModCDPServer {
             cdpSessionId,
             event: message,
           });
+          // Native events are the browser's own truth; generated schemas track one
+          // protocol version, so validating them drops events from other Chromes.
           return {
             ...message,
-            params: this.types.parseEventPayload(message.method, params ?? {}),
+            params: this.types.custom_events.has(message.method)
+              ? this.types.parseEventPayload(message.method, params ?? {})
+              : ((params ?? {}) as CdpEventMessage["params"]),
           };
         },
       });
@@ -318,6 +331,22 @@ class ModCDPServer {
     if (upstream !== "auto" && upstream !== "loopback_cdp" && upstream !== "chromedebugger")
       throw new Error(`No service-worker command registered for ${method}.`);
     const client = this.client;
+    if (
+      client.upstream instanceof ChromeDebuggerUpstreamTransport &&
+      (cdpSessionId != null || method.startsWith("Browser.") || method.startsWith("Target."))
+    ) {
+      this.cdp_adapter ??= new ChromeDebuggerCDPAdapter(client.upstream, (event) => {
+        client.emit(event.method, event.params ?? {}, event.sessionId ?? null);
+      });
+      result = await this.cdp_adapter.send(method, params as Record<string, unknown>, cdpSessionId);
+      // Raw browser results, like native events, must not be rejected for
+      // protocol-version drift (e.g. enum values from an older Chromium).
+      return (await this.runMiddleware("response", method, result, {
+        cdpSessionId,
+        request: { ...request, params },
+        response: { result },
+      })) as ProtocolResult;
+    }
     result = await client.router.send(method, params, cdpSessionId);
     result = await this.runMiddleware("response", method, result, {
       cdpSessionId,
@@ -465,6 +494,7 @@ class ModCDPServer {
 }
 
 export { ModCDPServer };
+export type { ModCDPServerStartupOptions };
 export {
   DEFAULT_NATIVEMESSAGING_BRIDGE_HOST_NAME,
   DEFAULT_NATIVEMESSAGING_BRIDGE_RECONNECT_INTERVAL_MS,
