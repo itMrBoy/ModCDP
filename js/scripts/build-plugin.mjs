@@ -45,7 +45,7 @@ execFileSync(process.execPath, ["js/scripts/build-extension-assets.mjs", "--snow
 });
 await fs.cp(path.join(root, "skills/snow-browser"), path.join(plugin, "skills/snow-browser"), {
   recursive: true,
-  filter: (file) => !file.endsWith("scripts/run.mjs"),
+  filter: (file) => !file.split(path.sep).join("/").endsWith("scripts/run.mjs"),
 });
 await fs.copyFile(path.join(root, "plugin/launch.mjs"), path.join(plugin, "launch.mjs"));
 await build({

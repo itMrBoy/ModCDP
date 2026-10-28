@@ -108,6 +108,11 @@ test(
     assert.ok(Object.keys(inventory.files).some((f) => f.includes("playwright-core/package.json")));
     assert.ok(Object.keys(inventory.files).some((f) => f.includes("@modelcontextprotocol/sdk/package.json")));
     for (const file of Object.keys(inventory.files)) {
+      assert.notEqual(
+        file,
+        "skills/snow-browser/scripts/run.mjs",
+        "legacy source-checkout runner must not ship in plugins",
+      );
       assert.ok(!/\.(?:tsx?|map)$/.test(file), file);
       assert.ok(!/(?:^|\/)extension\/|bridge-config\.json$|\.zip$|(?:^|\/)manifest\.json$/.test(file), file);
       assert.equal((await lstat(path.join(source, file))).isSymbolicLink(), false, file);
