@@ -55,7 +55,9 @@ pnpm run proxy-existing
 
 ## 扩展接入
 
-1. 确认用户要操作的雪诺浏览器已经打开。在支持的扩展管理页（通常为 `chrome://extensions`）开启开发者模式。
+雪诺浏览器尚未启动时，允许使用环境已有的 Computer Use（computerUse / 桌面自动化）启动它；若已运行则复用。Computer Use 的用途仅限启动，后续网页操作与网页截图统一通过 ModCDP + Playwright 完成，连接失败也不改用 Computer Use 操作网页。
+
+1. 确认用户要操作的雪诺浏览器已经打开。需要安装/重载扩展而当前允许的工具无法完成时，请用户按以下步骤操作；不要改用 Computer Use 操作扩展管理页。在支持的扩展管理页（通常为 `chrome://extensions`）开启开发者模式。
 2. 加载已解压扩展，选择当前 checkout 的 **`dist/extension` 绝对路径**，不要选源码 `extension/`。
 3. 已加载时确认扩展详情中的源目录并重载；另一 worktree 的已加载扩展不会被本次构建更新。
 4. 在雪诺浏览器中打开目标普通 HTTP/HTTPS 网页。内部页、被策略限制的页面不保证可调试。浏览器/管理员必须允许扩展安装及 `chrome.debugger`；本方案不绕过权限限制。

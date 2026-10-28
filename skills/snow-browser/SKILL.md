@@ -5,7 +5,13 @@ description: 当用户要求使用雪诺浏览器（Snow Browser、Snow 浏览�
 
 # 雪诺浏览器
 
-使用用户已有的雪诺浏览器，通过 ModCDP 扩展代理连接 Playwright。Codex 和 Claude Code 共用本技能与 Node 脚本，无需专属 MCP。用户指定雪诺浏览器时，按本流程执行网页操作，不自动换成 Chrome、Playwright 自建浏览器或其他浏览器工具。
+使用用户已有的雪诺浏览器，通过 ModCDP 扩展代理连接 Playwright。Codex 和 Claude Code 共用本技能与 Node 脚本，无需专属 MCP。用户指定雪诺浏览器时，网页操作统一使用本流程，不自动换成 Chrome 或 Playwright 自建浏览器。
+
+## 启动与操作工具
+
+- 雪诺浏览器尚未运行时，可以使用当前环境提供的 **Computer Use（computerUse / 桌面自动化）启动已安装的雪诺浏览器**；已经运行时直接复用。没有 Computer Use 能力时，提示用户启动雪诺浏览器后继续。
+- 浏览器启动后的**网页访问、导航、读取、点击、输入、网页截图及结果验证，必须通过 ModCDP + Playwright 完成**。Computer Use 只用于启动浏览器，不用于后续网页操作。
+- Playwright 或扩展连接失败时，按下文检查连接前提；不回退到 Computer Use 操作网页。扩展安装/重载无法通过当前允许的工具完成时，给出具体步骤请用户完成，再继续连接 Playwright。
 
 ## 连接前
 
