@@ -6,6 +6,9 @@
     "install": {
       "command": "pnpm install --frozen-lockfile"
     },
+    "build": {
+      "command": "pnpm run build"
+    },
     "proxy-local": {
       "command": "pnpm run proxy-local"
     },
