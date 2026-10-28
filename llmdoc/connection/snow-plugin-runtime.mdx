@@ -43,7 +43,11 @@ Broker 为所选实例持有唯一 Playwright 连接，多会话共享该连接�
 
 首次浏览器操作必须先 browser_status 列出 inventory 的名称、短编号及状态，再在同一问题提供已有实例与新开隔离选项，不能先泛问 reuse/isolated 再查询清单。未选择时页面工具拒绝操作，不设置隐式默认或失败 fallback。短编号映射到当前连接的完整 instance_id UUID，不能要求用户查找 UUID，也不能用唯一一个在线实例替代用户的选择。
 
-reuse 选择已登记普通 profile，沿用其登录状态和 cookies；同一 profile 不隔离账号。isolated 启动实际雪诺的独立 profile，通过一次性启动关联 URL 将对应扩展首次登记与本次创建关联，不复制现有 profile，也不依赖原生 CDP。找不到雪诺、扩展未安装或关联失败时明确报告，不切换其他 Chromium 或复用实例。
+reuse 选择已登记普通 profile，沿用其登录状态和 cookies；同一 profile 不隔离账号。isolated 请求启动实际雪诺的独立 profile，通过一次性启动关联 URL 将对应扩展首次登记与本次创建关联，不复制现有 profile，也不依赖原生 CDP。找不到雪诺、扩展未安装或关联失败时明确报告，不切换其他 Chromium 或复用实例。
+
+启动 nonce/URL 只表示请求归属，不能证明收到 URL 的浏览器仍是独立 profile。雪诺可能退出新进程或合并到原有窗口；带 nonce 的接入必须经 isolatedRunning 核验存活进程的真实 executable、精确 profile 参数及目录/owner marker。每次自有实例页面动作前重新核验，失败 detach、使引用失效且不发送页面操作，不自动转为 reuse。核验目前仅在 Windows 实现，非 Windows 明确返回 false；隔离只能在可验证环境尝试，不承诺实际雪诺支持，复用模式不受影响。
+
+pending 提供 launch_process_running 与 waiting_for_extension/launch_exited_unverified，区分已核验进程仍等扩展和进程退出、合并或不可验证。后一状态须明确报告隔离未建立，并按用户意愿保留或清理后才重试。不能把等待扩展与已建立隔离混为一谈。
 
 监听、profile 登记、所选实例连接和 Playwright 页面可操作是不同状态。用户仍需在目标 profile 手动安装/重载 Release 扩展；同一份扩展文件可供多个 profile 加载，配置位于 profile storage。profile 隔离不承诺隔离雪诺原生账号或系统凭据。
 

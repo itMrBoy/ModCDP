@@ -54,7 +54,7 @@ HTTP discovery 返回的是代理合成的 browser endpoint，不是真实页面
 
 ## 客户端与验收边界
 
-Playwright 的 `connectOverCDP` 使用 `noDefaults: true`，避免默认初始化依赖本入口没有的 browser-level 能力。优先复用默认 context；此入口不提供 Playwright 隔离 context。雪诺插件的 isolated 模式启动独立 profile，以一次性 URL 关联该 profile 手动加载的 Release 扩展；它仍使用 bridge，不要求原生 CDP 端口开放。多 profile 统一登记入口不是多个 CDP 客户端直接共享代理的授权；插件会话和 tab 独占由 `connection/snow-plugin-runtime.mdx` 维护，不改变代理单前端限制。
+Playwright 的 `connectOverCDP` 使用 `noDefaults: true`，避免默认初始化依赖本入口没有的 browser-level 能力。优先复用默认 context；此入口不提供 Playwright 隔离 context。雪诺插件的 isolated 模式请求启动独立 profile，以一次性 URL 关联手动加载的 Release 扩展；URL 不证明真实隔离，是否存在匹配 profile 的进程须由插件运行时核验，当前仅 Windows 实现该核验；它仍使用 bridge，不要求原生 CDP 端口开放。多 profile 统一登记入口不是多个 CDP 客户端直接共享代理的授权；插件会话和 tab 独占由 `connection/snow-plugin-runtime.mdx` 维护，不改变代理单前端限制。
 
 版本信息只能从当前环境取得，扩展无法获得的 revision 和运行时版本保持未知，不能借用其他安装的浏览器值。
 

@@ -48,4 +48,4 @@ CLI injector 在启动前准备扩展路径和参数，CDP injector 经浏览器
 
 关闭时只清理当前链路拥有的 transport、注入资源与 launcher 资源。特别是用户独立打开的浏览器，断开客户端或停止代理不应被解释为授权关闭它。服务器的可选“客户端失联后关闭”策略是额外显式配置，不是借用浏览器的默认含义。
 
-雪诺插件由自己的 Broker 管理 reuse 与独立 profile，不能直接套用 SDK local launcher 的自动清理策略。两种模式均连接各自扩展，断线保留窗口与 profile，用户确认后才关闭清理隔离实例；具体权属由 `connection/snow-plugin-runtime.mdx` 维护。
+雪诺插件由自己的 Broker 管理 reuse 与独立 profile 的启动尝试；不能把 spawn 成功或 URL 被打开当作隔离成功。Broker 在 nonce 接入及自有实例页面操作前核验实际进程与精确 profile，无法核验时拒绝操作。插件不能直接套用 SDK local launcher 的自动清理策略。两种模式均连接各自扩展，断线保留窗口与 profile，用户确认后才关闭清理隔离实例；具体权属由 `connection/snow-plugin-runtime.mdx` 维护。
