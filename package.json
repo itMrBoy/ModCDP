@@ -171,6 +171,8 @@
     "demo:proxy:playwright": "pnpm run build && node dist/js/examples/playwright.js",
     "demo:proxy:puppeteer": "pnpm run build && node dist/js/examples/puppeteer.js",
     "proxy": "pnpm run build && node dist/js/src/proxy/cli.js",
+    "proxy-local": "pnpm run proxy -- --launcher-mode=local --upstream-mode=ws --injector-mode=cli --injector-cli-extension-path=dist/extension --port=9223",
+    "proxy-existing": "pnpm run build && pnpm run build:extension-assets -- --enable-reversews && node dist/js/src/proxy/cli.js --launcher-mode=none --upstream-mode=reversews --upstream-reversews-bind=127.0.0.1:29292 --injector-mode=none --port=9223",
     "test": "pnpm run build && vitest run --fileParallelism=false --maxWorkers=1",
     "test:launchers": "vitest run js/test/test.LocalBrowserLauncher.ts js/test/test.RemoteBrowserLauncher.ts js/test/test.BBBrowserLauncher.ts",
     "pack:npm": "pnpm run build && npm pack --ignore-scripts",

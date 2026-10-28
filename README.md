@@ -1,5 +1,7 @@
 # ModCDP
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 CDP is powerful but it's been stretched to many use-cases beyond its initial audience. It is difficult for agents and humans to use without a harness library, because:
 
 - lacks the ability to use it statelessly without maintaining mappings of sessionIds, targetIds, frameIds, execution context IDs, backendNodeId ownership, and event listeners
@@ -13,7 +15,7 @@ CDP is powerful but it's been stretched to many use-cases beyond its initial aud
 While I had high hopes for WebDriver BiDi, unfortunately it solves almost none of these issues.
 
 ModCDP does not aim to solve all of these issues directly either. Instead it solves a simpler problem: allowing us to customize and extend CDP with new commands.
-Then we use those basic primitives to fix the shortcomings in CDP by implementing our own custom events (all sent over a normal CDP websocket to a stock Chromium browser).
+Then we use those basic primitives to fix the shortcomings in CDP by implementing our own custom events (all sent over a normal CDP websocket to a compatible browser).
 
 | Primitive              | What it does                                                                                          |
 | ---------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -24,11 +26,44 @@ Then we use those basic primitives to fix the shortcomings in CDP by implementin
 
 Instead of inventing yet another browser driver library, ModCDP fixes the issue at the root.
 
-It's perfectly compatible with playwright, puppeteer, etc. with no modifications. You can do things like `patchright` does, but generically at the CDP layer instead of having to patch libraries.
+ModCDP exposes a CDP-shaped interface for unmodified clients such as Playwright and Puppeteer. Compatibility depends on the transport, browser capabilities, and commands used; extension-only mode implements a subset of browser-level CDP. See [existing-browser mode](#reverse-proxy-mode) for the verified scope and limitations.
 
 You can send `Mod.*`, `Custom.*`, etc. through standard Playwright/Puppeteer/other-driver-managed CDP sessions; `js/examples/demo.ts`, `python/examples/demo.py`, and `go/examples/demo/main.go` demonstrate the flow in each language.
 
-## Use it
+## Language packages
+
+The language directories provide different SDKs, not three services that must all run. Their feature coverage is not identical.
+
+| Directory | Responsibility | Use it when |
+| --- | --- | --- |
+| `js/` | TypeScript/JavaScript client, Node proxy/CLI, browser-side server implementation, and development tools | Running the current proxy, using the JS SDK, or building the extension |
+| `python/` | Python client SDK, examples, and tests | Calling ModCDP from Python |
+| `go/` | Go client SDK, examples, and tests | Calling ModCDP from Go |
+| `extension/` | Shared browser extension entry point and static pages; reuses server logic from `js/` | Installing the bridge in the controlled browser |
+
+The current Node proxy does not require Go or Python. Even Python and Go clients use the shared TypeScript/JavaScript browser-side implementation. The existing-browser adapter changes are in `js/` and the shared `extension/src/service_worker.ts` entry point. Go/Python source was not changed for this adaptation; their `extension.zip` files are synchronized copies of the shared build artifact. The new Node proxy capabilities have not been ported to native Go/Python implementations.
+
+## Install and build
+
+For the Node proxy and extension build, install **Node ≥ 22** and **pnpm 10.33.2**, then run from the repository root:
+
+```sh
+pnpm install --frozen-lockfile
+```
+
+Installation runs `prepare`, which builds the package and extension. There is no separate package-level `install` script. Windows uses PowerShell to create the extension ZIP; other platforms need `zip` on PATH. Go and Python are optional: prepare Python ≥ 3.11 and `uv` for the Python demo, or Go ≥ 1.25 for the Go demo. Run `uv sync` inside `python/` or `go mod download` inside `go/` to install the corresponding SDK dependencies, declared in `python/pyproject.toml` and `go/go.mod`.
+
+```sh
+pnpm run build                    # TypeScript output, default extension assets, Python README existence check
+pnpm run build:package            # TypeScript output only
+pnpm run build:extension-assets   # Default extension assets only; ReverseWS and NATS disabled
+```
+
+Outputs include `dist/js/`, the unpacked extension in `dist/extension/`, and `dist/extension.zip`. Each extension-assets build also replaces `python/modcdp/extension.zip` and `go/modcdp/injector/extension.zip` with that same archive, including its selected ReverseWS/NATS flags. Building does not reload an installed extension or watch files.
+
+To get started, choose one of the [proxy shortcuts](#proxy-shortcuts-and-paseo) below. Existing-browser mode supports browsers with external CDP access disabled, provided extension installation and `chrome.debugger` access are allowed. It does not bypass browser or administrator restrictions on those capabilities.
+
+## Use the JS SDK
 
 ```ts
 import { ModCDPClient } from "modcdp";
@@ -116,7 +151,7 @@ console.log(created);
 
 ## Run the demos
 
-Each demo launches Chrome with the fixed ModCDP extension artifact loaded, headful on macOS and `--headless=new` on Linux, then exercises raw CDP, `Mod.evaluate`, `Custom.*` commands, custom events, middleware, and latency reporting in the chosen mode. When stdin is a TTY, the demo leaves you in the same mini REPL/TUI across JS, Python, and Go.
+Each demo launches a compatible browser with the fixed ModCDP extension artifact loaded, headful on macOS and `--headless=new` on Linux, then exercises raw CDP, `Mod.evaluate`, `Custom.*` commands, custom events, middleware, and latency reporting in the chosen mode. When stdin is a TTY, the demo leaves you in the same mini REPL/TUI across JS, Python, and Go.
 
 ```sh
 pnpm run demo:js                    # defaults to --loopback --upstream=ws
@@ -126,7 +161,7 @@ pnpm run demo:python
 pnpm run demo:go
 ```
 
-The Python package is managed with `uv`; `pnpm run demo:python` runs the built demo through `uv` and does not require a separate `pip install`. Set `CHROME_PATH=/path/to/chromium` to force a specific browser binary. Native messaging mode requires Chrome to launch the configured native host; it is not a standalone shell demo mode.
+The Python package is managed with `uv`; `pnpm run demo:python` runs the built demo through `uv` and does not require a separate `pip install`. Set `CHROME_PATH=/path/to/chromium` to force a specific browser binary. Native messaging mode requires the browser to launch the configured native host; it is not a standalone shell demo mode.
 
 ## Transparent Proxy
 
@@ -135,7 +170,7 @@ Upgrade any vanilla CDP client like Stagehand, Playwright, or Puppeteer transpar
 ```sh
 pnpm run proxy -- --upstream-mode=ws --upstream-ws-cdp-url=http://127.0.0.1:9222 --port 9223
 pnpm run proxy -- --launcher-mode=local --upstream-mode=pipe --port 9223
-pnpm run proxy -- --launcher-mode=local --upstream-mode=nats --upstream-nats-url=ws://127.0.0.1:4223 --port 9223
+# ReverseWS/NATS need an explicitly enabled extension build; see below.
 # const browser = await playwright.chromium.connectOverCDP("http://127.0.0.1:9223")
 # const session = await browser.contexts()[0].newCDPSession(page)
 # await session.send("Mod.evaluate", { expression: "1 + 1" }) // -> 2
@@ -144,22 +179,98 @@ pnpm run proxy -- --launcher-mode=local --upstream-mode=nats --upstream-nats-url
 
 The proxy uses the same `--launcher-*`, `--injector-*`, `--upstream-*`, `--client-config='{"client_cdp_send_timeout_ms": 10000}'`, `--router='{"router_routes": {...}}'`, and `--server-config='{"router": {"router_routes": {...}}}'` config groups as `ModCDPClient`. CLI flags use kebab case and map to the owner-prefixed config fields, for example `--launcher-local-executable-path` maps to `launcher.launcher_local_executable_path`. `ws` keeps a transparent websocket-to-websocket fast path; `pipe`, `nativemessaging`, `nats`, and launched `reversews` proxy downstream CDP-shaped messages through the selected client-side `ModCDPClient` transport.
 
-Native messaging mode uses the configured browser native host name directly. The baked extension expects the default `com.modcdp.bridge` host, so changing `--upstream-nativemessaging-host-name` requires using an extension build that was baked for that host. Because Chrome owns native host process launch and stdio, native messaging is not a standalone `pnpm run proxy` mode.
+Native messaging mode uses the configured browser native host name directly. The baked extension expects the default `com.modcdp.bridge` host, so changing `--upstream-nativemessaging-host-name` requires using an extension build that was baked for that host. Because the browser owns native host process launch and stdio, native messaging is not a standalone `pnpm run proxy` mode.
+
+### Proxy shortcuts and Paseo
+
+Run either shortcut from the repository root, in a terminal or through Paseo:
+
+```sh
+pnpm run proxy-local       # Launch an independent browser when a client connects
+pnpm run proxy-existing    # Use an already running browser through its extension
+```
+
+The complete commands live in `package.json`; `paseo.json` delegates to these pnpm scripts. Its `install` shortcut and worktree setup both use `pnpm install --frozen-lockfile` (see [installation](#install-and-build)).
+
+Two proxy shortcuts share `http://127.0.0.1:9223`; stop one before starting the other. They use ordinary script entries because Paseo rejects duplicate ports across service entries, even when the services are stopped. Connect directly to the address above; Paseo service health checks and proxy URLs are not enabled for these entries.
+
+- `proxy-local` starts a proxy that launches an independent browser when a CDP client connects, loading the built extension from `dist/extension`. It uses the project's browser discovery logic; use an installed browser build that supports `--load-extension`.
+- `proxy-existing` connects to an existing browser through its ModCDP extension, without a native browser debugging port. It builds with ReverseWS enabled and NATS disabled, then listens for the extension on `127.0.0.1:29292` before accepting a CDP client on `127.0.0.1:9223`. Load/reload this build in the existing browser. It supports one CDP client at a time and retains the extension connection between clients. Stopping this proxy leaves the existing browser running; stop/reload the reverse-enabled extension too if the proxy will remain stopped, to avoid connection-refused retries.
+
+Both shortcuts rebuild before starting and do not watch source files. Restart the selected script after source changes. A listening proxy port alone does not establish that the upstream browser and extension are ready. In existing-browser mode the extension can connect before a CDP client; the first client waits for that connection if necessary.
 
 ### Reverse proxy mode
 
-Use reverse mode when the browser does not expose a public CDP websocket to the final client, but the ModCDP extension can open a websocket back to a local proxy. The proxy still serves a normal-looking CDP endpoint to Playwright, Puppeteer, Stagehand, or any other CDP client:
+Use reverse mode when the browser does not expose a public CDP websocket to the final client, but the ModCDP extension can open a websocket back to a local proxy. After building and loading a reverse-enabled extension as described below, the built CLI serves a normal-looking CDP endpoint to Playwright, Puppeteer, Stagehand, or any other CDP client:
 
 ```sh
-pnpm run proxy -- --upstream-mode=reversews --port 9223
-pnpm run proxy -- --launcher-mode=local --upstream-mode=reversews --port 9223
-pnpm run proxy -- --launcher-mode=local --upstream-mode=reversews --upstream-reversews-bind=127.0.0.1:29293 --port 9223
-# const browser = await playwright.chromium.connectOverCDP("http://127.0.0.1:9223")
+node dist/js/src/proxy/cli.js --launcher-mode=none --upstream-mode=reversews --upstream-reversews-bind=127.0.0.1:29292 --injector-mode=none --port 9223
+node dist/js/src/proxy/cli.js --launcher-mode=local --upstream-mode=reversews --injector-mode=cli --injector-cli-extension-path=dist/extension --port 9223
+node dist/js/src/proxy/cli.js --launcher-mode=local --upstream-mode=reversews --injector-mode=cli --injector-cli-extension-path=dist/extension --upstream-reversews-bind=127.0.0.1:29293 --port 9223
+# const browser = await playwright.chromium.connectOverCDP("http://127.0.0.1:9223", { noDefaults: true })
 ```
 
-Reverse mode is opt-in. The shipped extension auto-connects to the fixed local reverse connector at `ws://127.0.0.1:29292`; the proxy/client listens there and waits for that extension connection. Keep `--upstream-reversews-bind` when using a custom extension build whose compiled autoconnect URL points at a different host or port. `--upstream-reversews-wait-timeout-ms` controls how long the proxy/client waits. Once connected, the extension identifies itself as a ModCDP service worker and the proxy uses that reverse websocket as its client-side transport. From the service worker server's perspective, reversews is a downstream client connection. `Mod.*`, expression-backed `Custom.*` commands, custom event fanout, middleware, and normal CDP commands all stay routed through `globalThis.ModCDP.handleCommand(...)` in the service worker.
+ReverseWS and NATS connections are disabled in the default extension build. Normal `pnpm install`, `pnpm run build`, and `proxy-local` keep them disabled, so ordinary WebSocket/CDP use does not retry connections to unused ports 29292 and 4223. `proxy-existing` explicitly enables ReverseWS after the ordinary build; it runs the built CLI directly to avoid overwriting that choice. After rebuilding, open the extension manager (`chrome://extensions` where supported), enable developer mode, and use Load unpacked to select this checkout's `dist/extension` directory. Use Reload for an already installed copy; clear historical errors to check that no new connection errors appear. Do not load the source `extension/` directory, whose service worker is not bundled.
+
+For a manually loaded extension, check its source directory on the extension's Details page. Rebuilding a Paseo worktree does not update an extension loaded from another checkout: load that worktree's `dist/extension`, or copy the new extension assets to the existing source directory before reloading. Starting `proxy-local` only injects the extension into the independent browser it launches; it does not update extensions in an already running browser.
+
+The extension implements browser-level target discovery and flattened CDP sessions over real `chrome.debugger` attachments. Use Playwright >= 1.60 with `chromium.connectOverCDP('http://127.0.0.1:9223', { noDefaults: true })` for this extension-only endpoint. `noDefaults` avoids browser-level download overrides and page emulation defaults; unsupported browser commands return errors. The adapter exposes ordinary tabs in the current normal profile, including their child iframe sessions (engine version ≥ 125), and excludes internal DevTools/browser pages and incognito tabs. It does not implement isolated browser-context creation or arbitrary native browser operations. Browser version and UA come from the extension's actual environment; revision and V8 version are empty because this API does not provide them.
+
+To verify the existing-browser endpoint using unmodified Playwright, run `node js/scripts/verify-existing-playwright.mjs http://127.0.0.1:9223 example.com`. It checks an already open matching tab, JavaScript evaluation, DOM, screenshot, metrics, CPU profile, and Trace, and saves a report in a temporary directory. The report separates `accessOk` from individual performance capabilities; its exit code is nonzero if any check fails. A running listener or a successful `Mod.evaluate` does not establish Playwright compatibility. Frontend disconnect sends a private ReverseWS lifecycle message so the extension releases its page attachments without closing the browser or the extension connection.
+
+Unmodified Playwright 1.60 was verified through this ModCDP endpoint on an existing browser with external CDP access disabled: existing-page discovery, evaluation, DOM access, screenshots, metrics, CPU profiling, and Trace collection. The independent-browser regression also covers cross-site iframes, tab creation/closure, and sequential reconnection; those checks do not establish the same coverage on every existing browser. Other tools and unsupported browser commands need separate acceptance tests.
+
+For reverse mode, explicitly build an extension that connects to the local reverse connector at `ws://127.0.0.1:29292`:
+
+```sh
+pnpm run build
+pnpm run build:extension-assets -- --enable-reversews
+node dist/js/src/proxy/cli.js --launcher-mode=local --upstream-mode=reversews --injector-mode=cli --injector-cli-extension-path=dist/extension --port=9223
+```
+
+For NATS, run `pnpm run build:extension-assets -- --enable-nats` after the ordinary build, start a NATS server with a WebSocket listener at `ws://127.0.0.1:4223`, then run the built CLI with `--upstream-mode=nats` and the same local-launcher/CLI-injector flags. Both build flags can be supplied together. Run the built CLI directly: `pnpm run proxy` rebuilds the extension with the default connections disabled. Existing browser profiles must reload the newly built extension before connecting.
+
+Custom extension entry points can pass `{ enable_reversews: true, enable_nats: true }` as the optional second argument to `new ModCDPServer(config, startupOptions)`. These startup choices are retained across repeated `start()` calls; they are not part of the `Mod.configure` wire contract. Native Messaging startup is unchanged.
+
+In an enabled reverse build, the proxy/client listens for that extension connection. Keep `--upstream-reversews-bind` when using a custom extension build whose compiled autoconnect URL points at a different host or port. `--upstream-reversews-wait-timeout-ms` controls how long the proxy/client waits. Once connected, the extension identifies itself as a ModCDP service worker and the proxy uses that reverse websocket as its client-side transport. From the service worker server's perspective, reversews is a downstream client connection. `Mod.*`, expression-backed `Custom.*` commands, custom event fanout, middleware, and normal CDP commands all stay routed through `globalThis.ModCDP.handleCommand(...)` in the service worker.
 
 Reverse mode is intentionally scoped to one local browser and one reverse extension connection per proxy process. The browser may still have other extensions installed; ModCDP does not require `--disable-extensions-except`.
+
+### Minimal Playwright connection
+
+Start `pnpm run proxy-existing`, load/reload the resulting extension, and open `https://example.com` in the existing browser first. Save this as an `.mjs` file in the repository and run it with Node:
+
+```js
+import { chromium } from "playwright";
+
+const browser = await chromium.connectOverCDP("http://127.0.0.1:9223", {
+  noDefaults: true,
+});
+try {
+  const context = browser.contexts()[0];
+  const page = context?.pages().find((page) => page.url().startsWith("https://example.com/"));
+  if (!page) throw new Error("Open https://example.com in the existing browser first");
+  console.log(await page.title());
+  console.log(await page.evaluate(() => document.visibilityState));
+} finally {
+  await browser.close(); // Disconnects this CDP client; leaves the independently opened browser running
+}
+```
+
+Use the existing context; creating isolated browser contexts is unsupported in this mode. Only one CDP client can connect at a time: disconnect other automation sessions before running the example or verification script.
+
+### Connection checks and troubleshooting
+
+| Symptom | Check or action |
+| --- | --- |
+| Proxy listening, but no pages or connection waits | `http://127.0.0.1:9223/json/version` only proves the proxy listener is up. `/json` and `/json/list` also advertise a proxy browser endpoint, not actual page targets. Confirm the extension service worker connects to `ws://127.0.0.1:29292`; then run the Playwright verification command above against an already open ordinary page. |
+| Port already in use | Stop the other shortcut or the known process using the port. Both shortcuts use 9223; existing-browser mode also needs 29292. |
+| Reverse connection refused repeatedly | Start `proxy-existing`, or disable/rebuild and reload the reverse-enabled extension when that proxy is no longer needed. Default builds have ReverseWS off. |
+| Changes have no effect | Check the extension's source directory, restart the shortcut to rebuild, then reload that exact `dist/extension`. Running a normal build later disables ReverseWS again. |
+| A second client is rejected | Existing-browser mode supports one CDP client at a time. Release the first connection before reconnecting. |
+| Unsupported browser command or initialization error | Use Playwright ≥ 1.60 with `noDefaults: true`. The adapter cannot supply every native browser operation, isolated context, internal page, or incognito target. |
+| No debugger attachment | Confirm extension installation, `chrome.debugger` permissions, and browser policy allow it; close conflicting debugging sessions if needed. |
+| Screenshot differs while the page is in the background | Retry with the target tab in the foreground and compare. Capture depends on browser visibility/rendering behavior; background capture behavior is not a universal guarantee. |
 
 ## Routing modes
 
@@ -179,7 +290,7 @@ Pass via `router: { router_routes: { "*.*": "direct_cdp" | "service_worker" } }`
 extension/                MV3 extension shell and static pages
   manifest.json
   src/
-  pages/
+    pages/
 js/                       TypeScript client/server/proxy package
   src/
     client/
@@ -216,9 +327,21 @@ dist/                     Built JS output used by the extension and Node CLI scr
 
 ## Requirements
 
-- Stock Google Chrome can be used without relaunch flags: visit `chrome://inspect/#remote-debugging` to expose the current browser at `http://127.0.0.1:9222`, and load/install the ModCDP extension in that profile. Pass that endpoint as `upstream: { upstream_mode: "ws", upstream_ws_cdp_url: "http://127.0.0.1:9222" }`.
-- Automated/test browsers need the extension-loading path that their Chrome build actually supports. Chrome for Testing currently supports `--load-extension=<path>` and may not expose `Extensions.loadUnpacked`; Canary 150 exposes `Extensions.loadUnpacked` and does not load this MV3 extension through `--load-extension` in the local headless test path.
-- Node ≥ 22, Python ≥ 3.11 with `websocket-client`, Go ≥ 1.25 with `gobwas/ws`.
+- **Required for the current Node proxy:** Node ≥ 22, pnpm 10.33.2, and a compatible browser with the required MV3 extension APIs (manifest minimum engine version 116; child iframe sessions need ≥ 125). Existing-browser mode requires extension installation and usable `chrome.debugger` permissions; a public native CDP endpoint is not required.
+- **Optional SDK runtimes:** Python ≥ 3.11 (`uv` installs the demo's dependencies, including `websocket-client`) or Go ≥ 1.25 (dependencies include `gobwas/ws`). They are not prerequisites for the Node proxy.
+- **Local-launch mode:** a browser build that supports `--load-extension=<path>`. Set `CHROME_PATH` to the executable if automatic discovery selects an unsuitable build. Loading via `Extensions.loadUnpacked` is only possible when the connected browser exposes that CDP domain.
+- **Direct/loopback mode:** an accessible native CDP endpoint and the extension installed in the same profile. Where supported, `chrome://inspect/#remote-debugging` can expose the current browser; this is optional and separate from existing-browser ReverseWS mode.
+
+### Development commands
+
+```sh
+pnpm run typecheck
+pnpm run test                     # Rebuilds; needs suitable browsers for integration tests
+pnpm run lint
+pnpm run format:check
+```
+
+The following architecture notes and wire diagrams describe the default native-CDP/loopback flow unless they explicitly mention reverse mode.
 
 ---
 
@@ -438,10 +561,10 @@ flowchart LR
 
 **Constraints**
 
-- This does not add real CDP methods to Chrome — the wire methods stay `Runtime.evaluate` + `Runtime.bindingCalled`. The `Mod.*` / `Custom.*` namespace is a client + SW convention.
+- This does not add real CDP methods to the browser — the wire methods stay `Runtime.evaluate` + `Runtime.bindingCalled`. The `Mod.*` / `Custom.*` namespace is a client + SW convention.
 - Page JS does not see custom commands or event bindings.
-- Stock Google Chrome's `chrome://inspect/#remote-debugging` toggle can expose the current browser at `localhost:9222` without relaunching with `--remote-debugging-port`, `--enable-unsafe-extension-debugging`, or `--remote-allow-origins=*`.
-- If `Extensions.loadUnpacked` is unavailable in the connected browser, load/install the ModCDP extension in that Chrome profile once and reconnect; the injector will use the discovery path.
+- A supported browser's `chrome://inspect/#remote-debugging` toggle can expose the current browser at `localhost:9222` without relaunching with `--remote-debugging-port`, `--enable-unsafe-extension-debugging`, or `--remote-allow-origins=*`.
+- If `Extensions.loadUnpacked` is unavailable in the connected browser, load/install the ModCDP extension in that browser profile once and reconnect; the injector will use the discovery path.
 
 **Alternatives considered**
 
@@ -455,7 +578,7 @@ flowchart LR
 </details>
 
 <details>
-<summary><b>Latency (local PoC, headless Chromium 141)</b></summary>
+<summary><b>Latency (local PoC, headless browser engine 141)</b></summary>
 
 ```
 launchToFirstBrowserGetVersion:      1262.6 ms
@@ -470,20 +593,20 @@ Custom roundtrip overhead is dominated by `Runtime.evaluate` + the SW's loopback
 </details>
 
 <details>
-<summary><b>macOS Chrome compatibility notes (tested 2026-05-27)</b></summary>
+<summary><b>macOS browser compatibility notes (tested 2026-05-27)</b></summary>
 
-Latest local extension-loading probe:
+Historical local extension-loading probe; these version-specific results are not a guarantee for other builds:
 
 | Browser | Version | `--load-extension=<dist/extension>` | `Extensions.loadUnpacked` |
 | --- | --- | --- | --- |
-| Chrome Canary | `150.0.7859.0` | no ModCDP service worker target appeared | returned `mdedooklbnfejodmnhmkdpkaedafkehf`; service worker target appeared |
-| Playwright Chrome for Testing | `148.0.7778.96` | service worker target appeared | `Method not available.` |
+| Development-channel build | `150.0.7859.0` | no ModCDP service worker target appeared | returned `mdedooklbnfejodmnhmkdpkaedafkehf`; service worker target appeared |
+| Playwright-managed testing build | `148.0.7778.96` | service worker target appeared | `Method not available.` |
 
 Practical guidance:
 
-- Use `injector_mode: "cdp"` / `Extensions.loadUnpacked` for Canary 150 when loading the extension into an already-running local browser over CDP.
-- Use `injector_mode: "cli"` / `--load-extension=<path>` with Chrome for Testing, Linux `/usr/bin/chromium`, or an explicit `CHROME_PATH` known to support launch-arg extension loading.
-- Local tests that exercise `injector_mode: "cli"` pin the executable to Chrome for Testing on macOS because the default local browser candidate may be Canary, and Canary 150 does not load this extension through `--load-extension` in the headless launch path.
+- Use `injector_mode: "cdp"` / `Extensions.loadUnpacked` for development build 150 when loading the extension into an already-running local browser over CDP.
+- Use `injector_mode: "cli"` / `--load-extension=<path>` with the tested build 148, Linux `/usr/bin/chromium`, or an explicit `CHROME_PATH` known to support launch-arg extension loading.
+- Local tests that exercise `injector_mode: "cli"` pin the executable to the testing build on macOS because the default local browser candidate may be a development build, and development build 150 does not load this extension through `--load-extension` in the headless launch path.
 - `Extensions.loadUnpacked` is not a universal fallback. It is only available in browser builds that expose the `Extensions` CDP domain.
 
 Previous latency probe definitions:
@@ -495,20 +618,20 @@ Latency columns:
 - `loopback` — ModCDP client to browser to extension service worker to loopback CDP to browser `Page.getFrameTree`.
 - `debugger` — ModCDP client to browser to extension service worker to `chrome.debugger.sendCommand` `Page.getFrameTree`.
 
-The launched-browser rows used an isolated temporary user data dir. The live/default-profile row is separate because it depends on the user enabling Chrome's `chrome://inspect/#remote-debugging` flow and accepting Chrome's connection prompt.
+The launched-browser rows used an isolated temporary user data dir. The live/default-profile row is separate because it depends on the user enabling the browser's `chrome://inspect/#remote-debugging` flow and accepting the browser's connection prompt.
 
 Minimum viable macOS CLI args:
 
 | Mode                  | Browsers                          | Args                                                                                                                                   |
 | --------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `--direct` headful    | all three                         | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> chrome://newtab/`                                                       |
-| `--direct` headless   | all three                         | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> chrome://newtab/`                                        |
-| `--loopback` headful  | all three                         | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> --remote-allow-origins=* chrome://newtab/`                              |
-| `--loopback` headless | all three                         | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> --remote-allow-origins=* chrome://newtab/`               |
-| `--debugger` headful  | Canary 150                        | `--remote-debugging-port=<port> --user-data-dir=<temp-profile>` plus `Extensions.loadUnpacked {path:"<repo>/dist/extension"}`          |
-| `--debugger` headless | Canary 150                        | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile>` plus `Extensions.loadUnpacked {path:"<repo>/dist/extension"}` |
-| `--debugger` headful  | Chrome for Testing 148            | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> --load-extension=<repo>/dist/extension chrome://newtab/`                |
-| `--debugger` headless | Chrome for Testing 148            | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> --load-extension=<repo>/dist/extension chrome://newtab/` |
+| `--direct` headful    | probed builds                         | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> chrome://newtab/`                                                       |
+| `--direct` headless   | probed builds                         | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> chrome://newtab/`                                        |
+| `--loopback` headful  | probed builds                         | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> --remote-allow-origins=* chrome://newtab/`                              |
+| `--loopback` headless | probed builds                         | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> --remote-allow-origins=* chrome://newtab/`               |
+| `--debugger` headful  | development build 150                        | `--remote-debugging-port=<port> --user-data-dir=<temp-profile>` plus `Extensions.loadUnpacked {path:"<repo>/dist/extension"}`          |
+| `--debugger` headless | development build 150                        | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile>` plus `Extensions.loadUnpacked {path:"<repo>/dist/extension"}` |
+| `--debugger` headful  | testing build 148            | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> --load-extension=<repo>/dist/extension chrome://newtab/`                |
+| `--debugger` headless | testing build 148            | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> --load-extension=<repo>/dist/extension chrome://newtab/` |
 
 Recommended full macOS launch args:
 
@@ -530,6 +653,6 @@ Recommended full macOS launch args:
 chrome://newtab/
 ```
 
-Add `--load-extension=<repo>/dist/extension` only for browser builds that support launch-arg extension loading. For Canary 150, load the extension after startup with `Extensions.loadUnpacked`. Add `--headless=new` for headless launches. Do not pass `--no-sandbox`, `--disable-gpu`, or `--remote-debugging-address` on macOS. On Linux only, pass `--no-sandbox` when there is no usable sandbox/display environment.
+Add `--load-extension=<repo>/dist/extension` only for browser builds that support launch-arg extension loading. For development build 150, load the extension after startup with `Extensions.loadUnpacked`. Add `--headless=new` for headless launches. Do not pass `--no-sandbox`, `--disable-gpu`, or `--remote-debugging-address` on macOS. On Linux only, pass `--no-sandbox` when there is no usable sandbox/display environment.
 
 </details>

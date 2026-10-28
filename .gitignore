@@ -3,3 +3,5 @@ dist/
 client/go/modcdp
 client/go/modcdp-go
 __pycache__/
+.perf-tmp
+.playwright-mcp
