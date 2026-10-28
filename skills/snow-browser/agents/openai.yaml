@@ -1,0 +1,6 @@
+interface:
+  display_name: "雪诺浏览器"
+  short_description: "通过 ModCDP 与 Playwright 操作雪诺浏览器已有页面，复用登录状态"
+
+policy:
+  allow_implicit_invocation: true

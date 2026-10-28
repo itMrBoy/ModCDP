@@ -63,6 +63,14 @@ Outputs include `dist/js/`, the unpacked extension in `dist/extension/`, and `di
 
 To get started, choose one of the [proxy shortcuts](#proxy-shortcuts-and-paseo) below. Existing-browser mode supports browsers with external CDP access disabled, provided extension installation and `chrome.debugger` access are allowed. It does not bypass browser or administrator restrictions on those capabilities.
 
+## Snow Browser skill for Codex and Claude Code
+
+The repository includes [skills/snow-browser](skills/snow-browser/SKILL.md), a portable skill for requests to operate **Snow Browser / 雪诺浏览器** with Playwright. It connects through the existing-browser ModCDP proxy, reuses open tabs and login state, and disconnects without closing the user's browser.
+
+Copy the whole `skills/snow-browser` directory into `.agents/skills/` for Codex or `.claude/skills/` for Claude Code in your project (or the corresponding directory in your home folder). Open a new session, then ask, for example, “使用雪诺浏览器，读取我已打开页面的标题”. The root `skills/` directory is the distributable source; it is not automatically discovered as a local skill by either client.
+
+See [setup and connection instructions](skills/snow-browser/references/setup.md) for prerequisites, extension installation, and the shared Node runner. When installed outside this checkout, pass its path using `--repo`. No new Playwright browser download is needed.
+
 ## Use the JS SDK
 
 ```ts

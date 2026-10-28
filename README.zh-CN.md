@@ -87,6 +87,14 @@ NATS 可通过 `--enable-nats` 开启，也可与 `--enable-reversews` 同时传
 
 构建不会重载已安装的扩展，也不会监听源码。普通 `build` 会再次关闭 ReverseWS；若正在使用已有浏览器模式，应重新运行对应启动入口并重载扩展。
 
+## Codex / Claude Code 雪诺浏览器技能
+
+仓库提供可分发的 [skills/snow-browser](skills/snow-browser/SKILL.md)。安装后，当用户要求“使用雪诺浏览器”进行网页操作时，代理会根据技能描述选择 ModCDP + Playwright 流程，复用已有标签页和登录状态，结束时仅断开连接。
+
+将整个 `skills/snow-browser` 文件夹复制到目标项目的 `.agents/skills/`（Codex）或 `.claude/skills/`（Claude Code）；也可复制到用户主目录下对应位置供多个项目使用。打开新会话后，例如输入“使用雪诺浏览器，读取我已打开页面的标题”。根目录 `skills/` 用于随仓库分发，并非两端普通本地技能的自动发现目录。
+
+依赖、扩展安装与共用 Node 执行脚本见 [连接与安装说明](skills/snow-browser/references/setup.md)。技能安装到 checkout 外时，通过 `--repo` 指定 ModCDP 仓库路径；无需下载新的 Playwright 浏览器。
+
 ## 两种启动方式
 
 完整启动参数统一维护在根目录 `package.json`；Paseo 的同名快捷入口只调用对应 pnpm 命令。两种模式共用 `http://127.0.0.1:9223`，应先停止一种再启动另一种。
