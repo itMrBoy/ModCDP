@@ -8,6 +8,7 @@ import { mkdtemp, mkdir, rm, readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright-core";
+import { randomUUID, randomBytes } from "node:crypto";
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(check, message) {
@@ -171,6 +172,46 @@ test(
       );
       await broker.call(c, "browser_select", { mode: "reuse", instance_id: replacement.instance_id });
       await assert.rejects(broker.call(c, "browser_bind", first), /Invalid|expired/i);
+      // The service worker may start before Snow opens its initialization URL.
+      // Exercise that real ordering without spawning or claiming a real Snow process.
+      const stale = await broker.call(c, "browser_new_tab", {});
+      const pendingSession = broker.createSession();
+      const ownedRecord = {
+        instance_id: randomUUID(),
+        launch_token: randomBytes(32).toString("hex"),
+        creator_session_id: pendingSession,
+        initialized: false,
+        profile: path.join(scratch, "late-init-fixture-profile"),
+        pid: null,
+      };
+      broker.records.push(ownedRecord);
+      Object.assign(broker.session(pendingSession), {
+        instance: null,
+        pending: ownedRecord.instance_id,
+        isolation: ownedRecord.instance_id,
+      });
+      const initializationTab = await contexts[0].newPage();
+      await initializationTab.goto(`http://127.0.0.1:${broker.bridge.port}/initialize/${ownedRecord.launch_token}`);
+      const ownedInstance = await until(async () => {
+        const status = await broker.call(pendingSession, "browser_status", {});
+        return status.instances.find((i) => i.owned_instance_id === ownedRecord.instance_id && i.extension_connected);
+      }, "An initialization URL opened after worker startup must register the matching isolated instance");
+      assert.notEqual(ownedInstance.instance_id, replacement.instance_id);
+      assert.equal(ownedInstance.mode, "isolated");
+      const matched = await broker.call(pendingSession, "browser_status", {});
+      assert.equal(matched.selected, ownedInstance.instance_id);
+      assert.equal(matched.pending_isolation, null);
+      await assert.rejects(broker.call(c, "browser_snapshot", stale), /expired|attached|select|disconnected/i);
+      assert.match((await broker.call(b, "browser_snapshot", second)).snapshot, /other-profile/);
+      await pause(500);
+      const stable = await broker.call(pendingSession, "browser_status", {});
+      assert.equal(
+        stable.selected,
+        ownedInstance.instance_id,
+        "the initialization tab must not cause repeated worker reloads",
+      );
+      assert.equal(stable.instances.filter((i) => i.owned_instance_id === ownedRecord.instance_id).length, 1);
+      await broker.call(pendingSession, "browser_finish", { close_and_cleanup: false, confirmed_by_user: true });
       await broker.close();
       for (const context of contexts)
         assert.ok(

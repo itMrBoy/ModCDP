@@ -169,11 +169,25 @@ export async function ensureDaemon({ home, runtime, entry, bridgePort }) {
     try {
       await lock.writeFile(JSON.stringify({ pid: process.pid }));
       // Another adapter may have completed startup just before this lock was acquired.
+      let candidate, candidateStatus;
       try {
-        const candidate = JSON.parse(await readFile(metaFile, "utf8"));
-        const status = await rpc(candidate, "status", {}, 1000);
-        if (status.runtime === runtime && !status.closing) return candidate;
+        candidate = JSON.parse(await readFile(metaFile, "utf8"));
+        candidateStatus = await rpc(candidate, "status", {}, 1000);
       } catch {}
+      if (candidateStatus) {
+        if (candidateStatus.closing) {
+          await delay(200);
+          continue;
+        }
+        if (candidateStatus.runtime === runtime) return candidate;
+        if (candidateStatus.sessions)
+          throw new Error(
+            "Plugin upgraded, but an older runtime still has active sessions. End/reload those sessions before using the new runtime.",
+          );
+        await rpc(candidate, "retire");
+        await delay(200);
+        continue;
+      }
       const logHandle = await open(path.join(home, "daemon.log"), "a", 0o600);
       const child = spawn(process.execPath, [entry, "--daemon", "--home", home, "--bridge-port", String(bridgePort)], {
         detached: true,

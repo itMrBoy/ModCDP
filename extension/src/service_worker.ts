@@ -42,19 +42,37 @@ async function start() {
     endpoint = url.href;
     const initializeOrigin = `http://${url.host}`;
     let launchToken: string | undefined;
-    for (const tab of await chrome.tabs.query({})) {
-      if (!tab.url) continue;
-      try {
-        const tabUrl = new URL(tab.url);
-        const match = /^\/initialize\/([a-f0-9]{64})$/.exec(tabUrl.pathname);
-        if (tabUrl.origin === initializeOrigin && !tabUrl.search && !tabUrl.hash && match) {
-          launchToken = match[1];
-          break;
+    let helloReady = false;
+    let reloadRequested = false;
+    const observeInitialization = (tab: chrome.tabs.Tab) => {
+      if (launchToken || reloadRequested) return;
+      // A pre-installed worker can start before the startup tab's URL commits.
+      // Observe before querying so a URL published during the query is not lost.
+      for (const candidate of [tab.pendingUrl, tab.url]) {
+        if (!candidate) continue;
+        try {
+          const tabUrl = new URL(candidate);
+          const match = /^\/initialize\/([a-f0-9]{64})$/.exec(tabUrl.pathname);
+          if (tabUrl.origin !== initializeOrigin || tabUrl.search || tabUrl.hash || !match) continue;
+          if (helloReady) {
+            // The existing connection may be an ordinary, unselected instance.
+            // Reload once to reconnect with the nonce; never mutate its identity.
+            reloadRequested = true;
+            chrome.runtime.reload();
+          } else {
+            launchToken = match[1];
+          }
+          return;
+        } catch {
+          // Browser internal pages do not necessarily have an ordinary URL.
         }
-      } catch {
-        // Browser internal pages do not necessarily have an ordinary URL.
       }
-    }
+    };
+    chrome.tabs.onCreated.addListener(observeInitialization);
+    chrome.tabs.onUpdated.addListener((_tabId, change, tab) => {
+      observeInitialization(change.url ? { ...tab, url: change.url } : tab);
+    });
+    for (const tab of await chrome.tabs.query({})) observeInitialization(tab);
     if (
       !launchToken &&
       typeof settings.snowOwnedLaunchToken === "string" &&
@@ -86,6 +104,7 @@ async function start() {
         return stateWrite;
       },
     };
+    helloReady = true;
   } else {
     // Retain standalone SDK compatibility; plugin builds never read this file.
     const bridgeConfig: { reversews_endpoint?: string } = await fetch(chrome.runtime.getURL("bridge-config.json"))
