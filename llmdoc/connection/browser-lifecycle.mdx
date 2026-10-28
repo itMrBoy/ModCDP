@@ -1,0 +1,71 @@
+---
+description: launcher 与 injector 的浏览器启动、远程浏览器清理、扩展发现和 identity；owned/borrowed 资源、ready probe 及本地临时目录释放边界。
+kind: architecture
+code:
+  paths:
+    - js/src/launcher/BrowserLauncher.ts
+    - js/src/launcher/LocalBrowserLauncher.ts
+    - js/src/launcher/RemoteBrowserLauncher.ts
+    - js/src/launcher/NoneBrowserLauncher.ts
+    - js/src/launcher/BBBrowserLauncher.ts
+    - js/src/injector/ExtensionInjector.ts
+    - js/src/injector/CLIExtensionInjector.ts
+    - js/src/injector/CDPExtensionInjector.ts
+    - js/src/injector/DiscoverExtensionInjector.ts
+    - js/src/injector/BBExtensionInjector.ts
+    - js/src/injector/BorrowExtensionInjector.ts
+    - js/src/injector/NodeExtensionFiles.ts
+    - python/modcdp/launcher/BrowserLauncher.py
+    - python/modcdp/launcher/LocalBrowserLauncher.py
+    - python/modcdp/launcher/RemoteBrowserLauncher.py
+    - python/modcdp/launcher/NoneBrowserLauncher.py
+    - python/modcdp/launcher/BBBrowserLauncher.py
+    - python/modcdp/injector/ExtensionInjector.py
+    - python/modcdp/injector/CLIExtensionInjector.py
+    - python/modcdp/injector/CDPExtensionInjector.py
+    - python/modcdp/injector/DiscoverExtensionInjector.py
+    - python/modcdp/injector/BBExtensionInjector.py
+    - python/modcdp/injector/NodeExtensionFiles.py
+    - go/modcdp/launcher/BrowserLauncher.go
+    - go/modcdp/launcher/LocalBrowserLauncher.go
+    - go/modcdp/launcher/RemoteBrowserLauncher.go
+    - go/modcdp/launcher/NoneBrowserLauncher.go
+    - go/modcdp/launcher/BBBrowserLauncher.go
+    - go/modcdp/injector/ExtensionInjector.go
+    - go/modcdp/injector/CLIExtensionInjector.go
+    - go/modcdp/injector/CDPExtensionInjector.go
+    - go/modcdp/injector/DiscoverExtensionInjector.go
+    - go/modcdp/injector/BBExtensionInjector.go
+    - go/modcdp/injector/NodeExtensionFiles.go
+relations:
+  related:
+    - connection/transports.mdx
+    - protocol/session-routing.mdx
+    - browser/cdp-endpoint.mdx
+---
+
+# 浏览器和扩展的生命周期权属
+
+Launcher 决定浏览器或远端会话从何而来，以及谁负责结束它；injector 决定如何准备、装载和确认共享扩展。客户端编排这些步骤，但不能把已有浏览器和自己创建的进程按同一种退出策略处理。
+
+## 创建与借用必须区分
+
+本地 launcher 拥有它创建的进程及临时 profile，关闭时释放这些资源。Remote launcher 只解析并借用已有 CDP endpoint，`close` 不关闭远程浏览器。None 模式不创建浏览器，适合反向 peer；云端 launcher 的会话则按其明确的创建/结束契约清理。
+
+显式提供的 user profile 是否删除取决于 cleanup 配置，不能把它当作自动生成的临时目录。云端恢复已有 session 也不自动取得该 session 的所有权；只有自己创建且关闭策略允许时才 release。
+
+`cdp_url` 是客户端可达入口，`loopback_cdp_url` 是扩展可达入口；部署网络不同，两者可以不同。Pipe 模式提供句柄，不能要求每种 launcher 都返回一个 WebSocket URL。跨网络传错地址会出现客户端已连接、worker 仍无法访问浏览器的分裂状态。
+
+## 注入之前先确定身份
+
+CLI injector 在启动前准备扩展路径和参数，CDP injector 经浏览器接口装载，discover 只寻找已运行的共享服务；borrow 复用已有注入结果。临时解包目录由准备者拥有，调用方提供的 unpacked 目录不能作为临时资源删除。
+
+扩展 ID、target URL 和 ready probe 是相关但不同的确认。目标匹配必须结合所选身份约束；探测要证明 `ModCDP` 所需能力实际存在，不能只因某个 service worker 的名称相似就信任。失败或不匹配的 probe 应解除临时附加，成功后才记录注入结果供路由使用。
+
+显式选择信任/限定目标会收紧发现范围；不要无条件回退到任意扩展 worker。扩展重载会替换 worker target 和 session，旧记录不再是永久身份。
+
+## 连接编排与恢复
+
+准备扩展可能产生 launcher 参数；launcher 结果又为 upstream 及 server 提供地址。物理连接后仍需完成注入/发现、绑定及远端配置。看到进程、端口或 target 不等于服务就绪；各步骤的失败应保留其责任边界，避免以另一个模式的成功掩盖缺少权限或资源。
+
+关闭时只清理当前链路拥有的 transport、注入资源与 launcher 资源。特别是用户独立打开的浏览器，断开客户端或停止代理不应被解释为授权关闭它。服务器的可选“客户端失联后关闭”策略是额外显式配置，不是借用浏览器的默认含义。

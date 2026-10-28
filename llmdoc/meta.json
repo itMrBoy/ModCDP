@@ -1,0 +1,39 @@
+{
+  "schema": "llmdoc.meta/v3",
+  "baseline": {
+    "revision": "a8669f903239461ab491a47e2006f5d198518e85",
+    "verifiedAt": "2026-10-28T10:22:36Z"
+  },
+  "documents": {
+    "browser/cdp-endpoint.mdx": {
+      "validatedRevision": null
+    },
+    "browser/worker-lifecycle.mdx": {
+      "validatedRevision": null
+    },
+    "connection/browser-lifecycle.mdx": {
+      "validatedRevision": null
+    },
+    "connection/transports.mdx": {
+      "validatedRevision": null
+    },
+    "development/build-and-validation.mdx": {
+      "validatedRevision": null
+    },
+    "development/sdk-parity.mdx": {
+      "validatedRevision": null
+    },
+    "protocol/command-execution.mdx": {
+      "validatedRevision": null
+    },
+    "protocol/session-routing.mdx": {
+      "validatedRevision": null
+    }
+  },
+  "convergence": {
+    "capturedAt": "2026-10-28T10:22:36Z",
+    "source": "init",
+    "documentCount": 8,
+    "totalEstimatedTokens": 2630
+  }
+}

@@ -1,0 +1,42 @@
+---
+description: AutoSessionRouter 的 target session frame executionContext 可变图；导航失效、detached session 等待取消与 topology/piercer world 的所有权。
+kind: architecture
+code:
+  paths:
+    - js/src/router/AutoSessionRouter.ts
+    - python/modcdp/router/AutoSessionRouter.py
+    - go/modcdp/router/AutoSessionRouter.go
+relations:
+  related:
+    - protocol/command-execution.mdx
+    - connection/transports.mdx
+    - browser/cdp-endpoint.mdx
+---
+
+# 会话图与执行上下文路由
+
+`AutoSessionRouter` 拥有浏览器 target、真实 CDP session、frame 和 execution context 的可变关系；三种语言均有对应实现。它根据浏览器事件维护图，并为命令按需获取可用路由。传输只交付消息，translate 只封装消息；两者都不能取代此处的状态所有权。
+
+## 身份不能混用
+
+targetId 标识目标，sessionId 标识某次附加，frameId 标识文档框架；executionContextId 只在相应目标/会话范围内有意义。存在 uniqueId 时使用它区分上下文，否则以 target/session 与数值 ID 组合。不得把不同 session 中相同的 context ID 合并，也不能在导航后沿用缓存的页面对象身份。
+
+Router 发现或附加目标后记录 session；Runtime 与 Page 事件补充上下文和 frame。按需路由与事件补全需要共同工作，不能因为 attach 返回就假设 Runtime context 已就绪。无实际路由时等待 context 必须失败；已有路由则有界等待。
+
+显式 session 必须存在于图中，未知值不能退回默认页面。没有显式 session 的 browser-level 命令可直接交 upstream；页面命令才按需解析目标并附加。部分 upstream 可返回无 session 的 target route，只有明确要求原生 session 的接口才拒绝它，不能把所有 attach 结果都强制当作非空 sessionId。
+
+全局函数调用需要当前 context，已有对象句柄的调用具有自己的执行身份。为所有 Runtime 命令机械填入 executionContextId 会改变语义；应只在需要全局执行上下文的分支注入。
+
+## 失效与取消
+
+导航、frame detach、target detach/destroy 及 Runtime context 销毁会使不同层级的记录失效。清理必须与相应 target/session/frame 作用域一致，不能只删除表面 target 而保留可被后续请求误用的 context。
+
+会话 detach 必须取消绑定在其上的等待者并清除计时器。等待超时或 detach 是失败状态，不能通过选择另一个普通 tab 来掩盖。需要再次操作时重新发现、附加和获取 context，使失败发生在身份边界而不是误发到其他页面。
+
+## Topology 的含义
+
+`Mod.getTopology` 汇总目标、frame、DOM root 和 execution context；为穿透 DOM 的工作流可按需创建 piercer isolated world。因此 topology 获取可能主动触发附加、上下文或 DOM 查询，不应当作无副作用、永久有效的静态清单。
+
+main world 与 isolated world 是明确选择；选择命名 world 必须保持 frame/session 匹配。DOM root、Shadow DOM 或 iframe 的关系来自当前浏览器图，不能把采样结果跨导航当作可复用定位身份。
+
+修改图维护时应覆盖三种语言的同类事件与取消语义；扩展 CDP endpoint 的合成前端会话是另一个所有权模型，由 `browser/cdp-endpoint.mdx` 维护，不能混入本 Router 的真实 browser graph。

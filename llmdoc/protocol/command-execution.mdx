@@ -1,0 +1,61 @@
+---
+description: Custom 命令与自定义事件 binding、Mod.configure bootstrap、中间件执行顺序及 native result schema 的局部豁免；客户端到特权 service worker 的执行模型。
+kind: architecture
+code:
+  paths:
+    - js/src/client/ModCDPClient.ts
+    - js/src/types/CDPTypes.ts
+    - js/src/types/modcdp.ts
+    - python/modcdp/client/ModCDPClient.py
+    - python/modcdp/types/CDPTypes.py
+    - python/modcdp/types/modcdp.py
+    - python/modcdp/types/jsonschema.py
+    - go/modcdp/client/ModCDPClient.go
+    - go/modcdp/client/CDPTypes.go
+    - go/modcdp/types/types.go
+    - js/src/server/ModCDPServer.ts
+    - js/src/translate/translate.ts
+    - python/modcdp/translate/translate.py
+    - go/modcdp/translate/translate.go
+relations:
+  related:
+    - protocol/session-routing.mdx
+    - browser/cdp-endpoint.mdx
+    - development/sdk-parity.mdx
+---
+
+# 特权命令执行与事件封装
+
+客户端统一提供标准 CDP、`Mod.*` 和注册的 Custom 命令。逻辑执行分为选择目标、跨边界封装、服务器执行与结果校验；物理传输不负责选择路由或解释自定义表达式。浏览器端 JS server 是共享的特权执行者，语言客户端只实现各自的调用和协议处理。
+
+## 路由不等于传输
+
+路由规则按精确命令、最长 domain 前缀、全局通配、最终 fallback 选择。默认客户端把命令交给 service worker，但普通代理可以将标准 CDP 直接转发；修改默认值必须区分客户端路由和服务器访问浏览器的路由，不能把方向相反的配置当作同一张表。
+
+走 service worker 的命令可经 `Runtime.callFunctionOn` 调用 `globalThis.ModCDP.handleCommand`，以 JSON 返回结果；server peer 传输则可直接提交协议命令。translate 是无状态线格式转换，不持有会话图、不做 I/O。目标和 execution context 的可变状态由 `protocol/session-routing.mdx` 负责。
+
+## 注册与执行权威
+
+注册名和 schema 存在客户端与服务器两侧。客户端本地类型/别名可用不表示远端表达式已安装；远端注册成功也不能替代调用方的 schema 维护。Custom 命令需要服务器端 expression，缺失时明确失败。
+
+`Mod.configure` 是 bootstrap 特例：downstream-only peer 首次接入时可能还没有浏览器 upstream、路由及远端注册项，因此由 server 直接应用配置。特例只改变执行入口，参数和结果仍通过 `CDPTypes`，不能以 bootstrap 为由跳过协议验证。
+
+server 先执行 request middleware，再校验参数、选择执行分支；Custom 表达式完成后执行 response middleware，再校验结果。事件也经过 event middleware。中间件可改变后续看到的内容，因此顺序属于契约；请求中间件未返回参数时应失败，不能静默发送空对象。
+
+Middleware 按注册顺序匹配精确名称或通配。未调用 `next` 会截断后续链，重复调用会失败；不能按互相独立的 hook 来重排或并行执行。server 与其内部 client 共享类型 registry，避免注册表在同一执行进程内漂移。
+
+表达式运行于扩展 service worker 的特权环境，不能按普通页面函数的权限模型处理。调用方应控制谁能访问入口及注册表达式；协议转发不是安全隔离层。
+
+MV3 worker 不使用普通字符串 eval 执行表达式，server 经浏览器 upstream 对同一 worker 发出 Runtime evaluate，保留特权上下文。不要将它改为页面执行或本地 Node eval；这会改变可见对象和权限，破坏命令契约。
+
+## Binding 与 schema 边界
+
+事件 binding 区分镜像的 upstream 事件与自定义事件，payload 携带事件名、数据和来源 session。解包必须保留该来源；无效 JSON、非本协议 binding 或递归 binding 名不成为应用事件。不能以 binding transport 的外层 session 代替 payload 指明的真实目标 session。
+
+生成 schema 对应某个协议输入版本，实际浏览器可能不同。为避免本机事件或枚举漂移被错误丢弃，server 的原生事件镜像分支不强制解析 native payload，`ChromeDebuggerCDPAdapter` 的原生响应分支也在 response middleware 后直接返回。Custom 事件与 Custom/Mod 命令仍校验。
+
+这些是限定在 server 分支的兼容处理，绝不是全局关闭 schema。普通客户端 `_onRecv`、普通 `send` 以及非 adapter 分支仍经过 `CDPTypes`。调查版本漂移时必须指出实际路径，不能假设每个传输或语言客户端都自动接受所有原生结果。
+
+## 失败传播
+
+Runtime exception、非法 JSON、参数/结果 schema 错误和无注册命令都需要向调用方暴露；server downstream 将命令失败转换为关联请求的协议错误。超时只结束等待，不证明具有副作用的浏览器操作已取消。错误恢复应先确认远端状态，再决定是否重试。

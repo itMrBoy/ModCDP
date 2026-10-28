@@ -1,0 +1,59 @@
+---
+description: upstream/downstream 方向、等待 peer 超时、ReverseWS hello 与 Native Messaging 断开；请求来源归属、transport event fanout 和连接失败清理。
+kind: architecture
+code:
+  paths:
+    - js/src/transport/UpstreamTransport.ts
+    - js/src/transport/DownstreamTransport.ts
+    - js/src/transport/DownstreamTransportSet.ts
+    - js/src/transport/WSUpstreamTransport.ts
+    - js/src/transport/PipeUpstreamTransport.ts
+    - js/src/transport/ReverseWSUpstreamTransport.ts
+    - js/src/transport/ReverseWSDownstreamTransport.ts
+    - js/src/transport/NATSUpstreamTransport.ts
+    - js/src/transport/NATSDownstreamTransport.ts
+    - js/src/transport/NativeMessagingUpstreamTransport.ts
+    - js/src/transport/NativeMessagingDownstreamTransport.ts
+    - python/modcdp/transport/UpstreamTransport.py
+    - python/modcdp/transport/WSUpstreamTransport.py
+    - go/modcdp/transport/UpstreamTransport.go
+    - go/modcdp/transport/WSUpstreamTransport.go
+relations:
+  related:
+    - connection/browser-lifecycle.mdx
+    - protocol/command-execution.mdx
+    - browser/cdp-endpoint.mdx
+    - browser/worker-lifecycle.mdx
+---
+
+# 物理连接、peer 与消息归属
+
+Upstream 是调用方发命令的接口，peer 既可能是原生 browser CDP，也可能是 ModCDP server。Downstream 是共享 worker 面向客户端的接入。方向由所有者视角决定：ReverseWS 虽由扩展主动拨号，Node 侧仍是 upstream，worker 侧仍是 downstream。物理拨号方向不能决定协议执行路径。
+
+## 就绪分层
+
+`connect`、监听已建立、peer 已到达和 Mod 配置成功是不同状态。浏览器 CDP 的 WS/Pipe 连接可直接承载目标协议；server peer 还需要相应握手及配置，不能按同一条初始化路径假设。
+
+ReverseWS 在 Node 建立 listener，扩展连接后先发送 hello。hello 识别本协议 peer，不是完整的身份认证或权限授权；监听应放在预期信任边界内。一个新 peer 可替换旧 peer，等待者还可要求在某时间点之后建立的新连接，避免把陈旧 peer 当作重连成功。
+
+等待必须有界，关闭时取消等待者并清除计时器。Native Messaging 依赖宿主安装与协议；NATS 依赖其外部服务。声明某个 transport 可选或编译启用不代表这些前提已经满足；Python/Go 的 WS 客户端也不能据此宣称具备 JS 的全部连接器。
+
+Pipe 使用 JSON 加 NUL 分帧，Native Messaging 使用小端长度前缀加 JSON；Node 的协议 stdio 不得混入普通日志。NATS 的 request/reply subject 与事件广播分开，不能把广播事件通路当作带关联的响应通路。
+
+## 请求与事件不是同一种分发
+
+Upstream 用请求 ID 将响应交付给等待者，连接关闭要使受影响请求失败，不能留到下次连接继续误配。超时结束本地等待，不保证远端操作回滚。
+
+Base string send 的 pending promise 与 raw message send 是两条路径。close/error 通知可拒绝 pending，但 concrete transport 的显式 `close()` 清理实现并不统一；不能承诺每种 close 都立即清空所有 pending 和监听器。修改清理行为时应检查真实通知链，而不是只看到方法名就推断完成。
+
+Downstream set 注册统一请求处理器并聚合状态；具体 transport 保留请求的来源，使响应只返回拥有该请求的连接，而事件可向已连接客户端 fanout。不要用广播响应代替来源记账，也不能因两个 peer 复用数值 ID 就把它们视为同一个请求。
+
+事件还可经 Runtime binding 传给经原生 CDP 附加的客户端。binding 名及来源 session 属于协议封装；transport 不应注册 Custom 命令、执行 middleware 或选择 frame/context。
+
+## 失联、重连与清理
+
+监听仍在但 peer 已断开时，直接发送应失败；不能把“本地 server 对象存在”当成连接可用。重连恢复物理通路后仍应核对注册与会话状态，不能自动推断旧请求可以安全重试。
+
+共享 downstream 可以配置客户端 lease；失联后是否关闭浏览器还取决于显式关闭策略。lease、worker keepalive 和 ReverseWS 连接拥有不同的计时与权属，不应相互替代。
+
+已有浏览器 proxy 特别把 peer 生命周期延长到多个顺序前端之外，同时限制单个前端。该桥接和 adapter reset 由 `browser/cdp-endpoint.mdx` 拥有；不要通过通用 transport 自动关闭整个 listener 来实现一次前端断开。
