@@ -1,10 +1,44 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import net from "node:net";
+import { once } from "node:events";
 import { WebSocket } from "ws";
 import { startBridge } from "../src/bridge.mjs";
 
 const extensionId = "a".repeat(32);
+test("bridge shutdown completes with a browser connection that has not finished HTTP headers", async () => {
+  const bridge = await startBridge({
+    port: 0,
+    extensionId,
+    extensionVersion: "0.1.1",
+    register: () => {},
+    disconnected: () => {},
+    initialization: () => false,
+  });
+  const socket = net.connect({ host: "127.0.0.1", port: bridge.port });
+  socket.on("error", () => {});
+  await once(socket, "connect");
+  // Browsers may retain a speculative or incomplete HTTP connection while tabs stay open.
+  socket.write(`GET / HTTP/1.1\r\nHost: 127.0.0.1:${bridge.port}\r\n`);
+  await new Promise((resolve) => setImmediate(resolve));
+  const closed = new Promise((resolve) => socket.once("close", resolve));
+  const closing = bridge.close();
+  let timer;
+  try {
+    await Promise.race([
+      closing,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Bridge shutdown waited for browser HTTP traffic")), 1000);
+      }),
+    ]);
+    await closed;
+  } finally {
+    clearTimeout(timer);
+    socket.destroy();
+    await closing;
+  }
+});
 function rejectedPeer(port, { origin = `chrome-extension://${extensionId}`, hello } = {}) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/bridge`, { origin });

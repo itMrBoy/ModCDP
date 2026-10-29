@@ -127,7 +127,12 @@ export async function startBridge({ port, extensionId, extensionVersion, registe
       for (const peer of wss.clients) peer.terminate();
       await Promise.allSettled([...tasks]);
       await new Promise((resolve) => wss.close(resolve));
-      await new Promise((resolve) => server.close(resolve));
+      await new Promise((resolve) => {
+        server.close(resolve);
+        // An open initialization tab can retain an incomplete HTTP connection.
+        // Stop accepting first, then release only this service's HTTP connections.
+        server.closeAllConnections();
+      });
     },
   };
 }
