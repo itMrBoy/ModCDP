@@ -9,6 +9,9 @@
     "build": {
       "command": "pnpm run build"
     },
+    "test": {
+      "command": "pnpm test"
+    },
     "build-plugin": {
       "command": "pnpm run build:plugin"
     },
