@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-const source = path.resolve("dist/plugin-marketplace/plugins/snow-browser");
+const source = path.resolve("dist/plugin-marketplace/plugins/cdphelper");
 async function client(plugin, home) {
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -20,7 +20,7 @@ async function client(plugin, home) {
   transport.stderr?.on("data", (data) => {
     errors += data;
   });
-  const connection = new Client({ name: "snow-plugin-verification", version: "1.0.0" });
+  const connection = new Client({ name: "cdphelper-plugin-verification", version: "1.0.0" });
   try {
     await connection.connect(transport);
   } catch (error) {
@@ -49,7 +49,7 @@ test(
   "portable packaged runtime starts offline without the development tree; two MCP clients share one authenticated daemon",
   { timeout: 60000 },
   async () => {
-    const scratch = await mkdtemp(path.join(tmpdir(), "snow-plugin-test-"));
+    const scratch = await mkdtemp(path.join(tmpdir(), "cdphelper-plugin-test-"));
     const plugin = path.join(scratch, "plugin");
     const home = path.join(scratch, "home");
     let a, b;
@@ -105,19 +105,27 @@ test(
   { timeout: 30000 },
   async () => {
     const inventory = JSON.parse(await readFile(path.join(source, "artifact.json"), "utf8"));
+    const manifest = JSON.parse(await readFile(path.join(source, "plugin.json"), "utf8"));
+    assert.equal(manifest.name, "cdphelper");
+    assert.equal(manifest.displayName, "cdpHelper");
+    for (const config of ["mcp.json", "mcp.codex.json", ".mcp.json"]) {
+      const wiring = JSON.parse(await readFile(path.join(source, config), "utf8"));
+      assert.deepEqual(Object.keys(wiring.mcpServers), ["cdphelper"]);
+    }
+    assert.match(await readFile(path.join(source, "skills/cdphelper/SKILL.md"), "utf8"), /^name: cdphelper$/m);
     assert.ok(Object.keys(inventory.files).some((f) => f.includes("playwright-core/package.json")));
     assert.ok(Object.keys(inventory.files).some((f) => f.includes("@modelcontextprotocol/sdk/package.json")));
     for (const file of Object.keys(inventory.files)) {
       assert.notEqual(
         file,
-        "skills/snow-browser/scripts/run.mjs",
+        "skills/cdphelper/scripts/run.mjs",
         "legacy source-checkout runner must not ship in plugins",
       );
       assert.ok(!/\.(?:tsx?|map)$/.test(file), file);
       assert.ok(!/(?:^|\/)extension\/|bridge-config\.json$|\.zip$|(?:^|\/)manifest\.json$/.test(file), file);
       assert.equal((await lstat(path.join(source, file))).isSymbolicLink(), false, file);
     }
-    const scratch = await mkdtemp(path.join(tmpdir(), "snow-plugin-tamper-"));
+    const scratch = await mkdtemp(path.join(tmpdir(), "cdphelper-plugin-tamper-"));
     try {
       await cp(source, scratch, { recursive: true });
       await writeFile(path.join(scratch, "runtime/cli.mjs"), "// tampered\n");
@@ -135,7 +143,7 @@ test(
   "marketplace upgrade refuses to replace active old sessions, then applies a whole new runtime",
   { timeout: 60000 },
   async () => {
-    const scratch = await mkdtemp(path.join(tmpdir(), "snow-plugin-upgrade-"));
+    const scratch = await mkdtemp(path.join(tmpdir(), "cdphelper-plugin-upgrade-"));
     const home = path.join(scratch, "home");
     const next = path.join(scratch, "next");
     let old, upgraded;
@@ -143,7 +151,7 @@ test(
       await cp(source, next, { recursive: true });
       const buildFile = path.join(next, "runtime/build.json");
       const build = JSON.parse(await readFile(buildFile, "utf8"));
-      build.version = "0.1.1";
+      build.version = "0.1.2";
       build.digest = createHash("sha256").update("test runtime upgrade").digest("hex");
       await writeFile(buildFile, JSON.stringify(build));
       const artifactFile = path.join(next, "artifact.json");
@@ -161,8 +169,8 @@ test(
       old = null;
       upgraded = await client(next, home);
       const meta = JSON.parse(await readFile(path.join(home, "daemon.json"), "utf8"));
-      assert.match(meta.runtime, /^0\.1\.1:/);
-      assert.ok((await readdir(path.join(home, "runtimes"))).some((v) => v.startsWith("0.1.1-")));
+      assert.match(meta.runtime, /^0\.1\.2:/);
+      assert.ok((await readdir(path.join(home, "runtimes"))).some((v) => v.startsWith("0.1.2-")));
     } finally {
       await old?.close();
       await upgraded?.close();

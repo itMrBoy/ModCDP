@@ -2,7 +2,7 @@
 
 ## 用户安装入口
 
-唯一插件市场分发入口为 **cdpHelper 仓库的 main 分支**。该仓库根目录提供两端 marketplace，`plugins/snow-browser/` 提供可运行插件，`source/ModCDP` 子模块指向对应源码。ModCDP 源仓库只维护源码、构建和测试，不能把它的源码根目录当作已安装插件。
+唯一插件市场分发入口为 **cdpHelper 仓库的 main 分支**。该仓库根目录提供两端 marketplace，`plugins/cdphelper/` 提供可运行插件，`source/ModCDP` 子模块指向对应源码。ModCDP 源仓库只维护源码、构建和测试，不能把它的源码根目录当作已安装插件。
 
 用户需准备 **Node ≥22**、已安装的雪诺浏览器，以及加载 MV3 扩展和使用 `chrome.debugger` 的权限。插件包含编译后的 JavaScript 和固定生产依赖；用户不执行 npm/pnpm install、不本地构建、不下载 Playwright Chromium。启动器校验当前 Node 和产物完整性，不切换 Node、不修改 PATH，不通过下载缓存复制修补缺失产物。
 
@@ -10,21 +10,21 @@ Codex：
 
 ```sh
 codex plugin marketplace add itMrBoy/cdpHelper --ref main
-codex plugin add snow-browser@snow-browser-plugins
+codex plugin add cdphelper@cdphelper-plugins
 ```
 
 Claude Code：
 
 ```text
 /plugin marketplace add itMrBoy/cdpHelper
-/plugin install snow-browser@snow-browser-plugins
+/plugin install cdphelper@cdphelper-plugins
 ```
 
-上述命令用于 cdpHelper 发布完成后的安装；当前远端分支与 Release 尚未发布，不能作为已经可用的安装承诺。安装后打开新会话，确认插件技能和 `snow_browser` MCP 服务已加载；仅复制技能不会安装服务。Codex 可能以 `snow-browser:snow-browser` 返回插件技能名。移除旧的独立同名技能可避免规则混用。
+上述命令用于 cdpHelper 发布完成后的安装；当前远端分支与 Release 尚未发布，不能作为已经可用的安装承诺。安装后打开新会话，确认插件技能和 `cdphelper` MCP 服务已加载；仅复制技能不会安装服务。Codex 可能以 `cdphelper:cdphelper` 返回插件技能名。移除旧的独立同名技能可避免规则混用。
 
 ## 扩展单独安装
 
-计划在 **cdpHelper Release** 的 `v0.1.0` tag 提供 `snow-browser-extension-v0.1.0.zip`（当前尚未发布）。发布后获取与插件版本匹配的独立扩展 ZIP，用户自行解压到稳定目录。在要控制的雪诺 profile 中打开扩展管理页（通常为 `chrome://extensions`），开启开发者模式，点击“加载已解压的扩展”，选择 **解压结果内含 `manifest.json` 的 `extension/` 子目录**，不要选择 ZIP 根目录。已有扩展更新时，由用户替换 Release 文件并手动重载。
+计划在 **cdpHelper Release** 的 `v0.1.1` tag 提供 `cdphelper-extension-v0.1.1.zip`（当前尚未发布）。发布后获取与插件版本匹配的独立扩展 ZIP，用户自行解压到稳定目录。在要控制的雪诺 profile 中打开扩展管理页（通常为 `chrome://extensions`），开启开发者模式，点击“加载已解压的扩展”，选择 **解压结果内含 `manifest.json` 的 `extension/` 子目录**，不要选择 ZIP 根目录。已有扩展更新时，由用户替换 Release 文件并手动重载。
 
 多个普通 profile 可加载同一份扩展文件；身份和连接配置由每个 profile 的扩展 storage 保存。插件不会接收本机扩展目录、下载扩展、从缓存复制扩展或向公共扩展目录写入连接凭据，也没有 `configure_extension` 工具。
 
@@ -49,7 +49,7 @@ pending 的 `launch_process_running` 为 true 且状态为 `waiting_for_extensio
 
 ## 升级、结束与故障
 
-插件按整体产物升级，扩展 ZIP 独立更新并由用户重载。升级后的新会话或重新加载使用新版本；活动旧会话不强制中断。插件校验失败时重新安装完整同一版本，不在线安装缺失依赖或静默换版本。服务文件、记录和日志位于用户自己的 `~/.snow-browser/`，不修改用户项目。
+插件按整体产物升级，扩展 ZIP 独立更新并由用户重载。升级后的新会话或重新加载使用新版本；活动旧会话不强制中断。插件校验失败时重新安装完整同一版本，不在线安装缺失依赖或静默换版本。服务文件、记录和日志位于用户自己的 `~/.cdphelper/`，不修改用户项目。
 
 隔离结束前询问是否关闭并清理。用户拒绝、未答复或异常断开时保留窗口和 profile；后续状态显示保留记录，再明确确认后清理。只清理插件创建并核验归属的实例。复用浏览器和标签页始终保留。最后一个客户端退出后后台空闲回收，不自动关闭用户浏览器。
 
@@ -67,6 +67,6 @@ pnpm run test:plugin
 
 构建结果在 `dist/plugin-marketplace/`，用于组装 cdpHelper 的完整插件产物；独立扩展 ZIP 用于 cdpHelper Release。源码、测试和开发依赖不下发到插件运行目录，`source/ModCDP` 仅为开发者追溯源码的子模块。构建不是发布；提交分发仓库、更新子模块指针或上传 Release 应分别验证，不以其中一步成功代替完整验收。不发布自有 npm 包。
 
-独立 checkout 的 `pnpm run proxy-existing` 与 `skills/snow-browser/scripts/run.mjs --repo <源码目录>` 保留兼容。它使用固定客户端端口9223、扩展端口29292，同一代理只允许一个 CDP 客户端顺序接入；该入口不提供插件的29393多 profile 登记、会话选择和隔离管理。
+独立 checkout 的 `pnpm run proxy-existing` 与 `skills/cdphelper/scripts/run.mjs --repo <源码目录>` 保留兼容。它使用固定客户端端口9223、扩展端口29292，同一代理只允许一个 CDP 客户端顺序接入；该入口不提供插件的29393多 profile 登记、会话选择和隔离管理。
 
 ModCDP 上游尚未提供明确许可证；插件格式和测试通过不代表取得分发授权，不为上游代码虚构许可证。对外分发授权及第三方许可证义务需要另行核对。

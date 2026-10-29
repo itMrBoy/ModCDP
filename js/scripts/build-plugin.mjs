@@ -27,7 +27,7 @@ const removeDist = async (target, options = {}) => {
 };
 const output = path.join(root, "dist/plugin-marketplace");
 const releases = path.join(root, "dist/releases");
-const plugin = path.join(output, "plugins/snow-browser");
+const plugin = path.join(output, "plugins/cdphelper");
 const runtime = path.join(plugin, "runtime");
 const { version } = JSON.parse(await fs.readFile(path.join(root, "plugin/version.json"), "utf8"));
 const hash = (data) => createHash("sha256").update(data).digest("hex");
@@ -38,12 +38,12 @@ await fs.mkdir(path.join(plugin, ".claude-plugin"), { recursive: true });
 await fs.mkdir(path.join(plugin, ".codex-plugin"), { recursive: true });
 await fs.mkdir(path.join(output, ".agents/plugins"), { recursive: true });
 await fs.mkdir(path.join(output, ".claude-plugin"), { recursive: true });
-execFileSync(process.execPath, ["js/scripts/build-extension-assets.mjs", "--snow-plugin", "--no-sourcemap"], {
+execFileSync(process.execPath, ["js/scripts/build-extension-assets.mjs", "--cdphelper-plugin", "--no-sourcemap"], {
   cwd: root,
   stdio: "inherit",
   windowsHide: true,
 });
-await fs.cp(path.join(root, "skills/snow-browser"), path.join(plugin, "skills/snow-browser"), {
+await fs.cp(path.join(root, "skills/cdphelper"), path.join(plugin, "skills/cdphelper"), {
   recursive: true,
   filter: (file) => !file.split(path.sep).join("/").endsWith("scripts/run.mjs"),
 });
@@ -133,13 +133,14 @@ for (const name of ["playwright-core", "@modelcontextprotocol/sdk", "ws", "zod"]
 await writeJSON(path.join(runtime, "package.json"), {
   private: true,
   type: "module",
-  name: "snow-browser-runtime",
+  name: "cdphelper-runtime",
   version,
 });
 const manifest = {
-  name: "snow-browser",
+  name: "cdphelper",
+  displayName: "cdpHelper",
   version,
-  description: "Operate Snow Browser with Playwright through a local MCP service.",
+  description: "Operate browsers with Playwright through a local MCP service.",
   author: { name: "itMrBoy" },
   homepage: "https://github.com/itMrBoy/cdpHelper/tree/main",
   repository: "https://github.com/itMrBoy/cdpHelper",
@@ -162,7 +163,7 @@ for (const [file, variable] of [
   await writeJSON(path.join(plugin, file), {
     ...(file === "mcp.json" ? { $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json" } : {}),
     mcpServers: {
-      snow_browser: {
+      cdphelper: {
         type: "stdio",
         command: "node",
         ...(file === ".mcp.json" ? { args: [`\${${variable}}/launch.mjs`] } : { args: ["launch.mjs"], cwd: "." }),
@@ -171,20 +172,22 @@ for (const [file, variable] of [
   });
 }
 await writeJSON(path.join(output, ".agents/plugins/marketplace.json"), {
-  name: "snow-browser-plugins",
+  name: "cdphelper-plugins",
+  description: "cdpHelper browser automation plugin marketplace",
   plugins: [
     {
-      name: "snow-browser",
-      source: { source: "local", path: "./plugins/snow-browser" },
+      name: "cdphelper",
+      source: { source: "local", path: "./plugins/cdphelper" },
       policy: { installation: "AVAILABLE", authentication: "ON_USE" },
       category: "Productivity",
     },
   ],
 });
 await writeJSON(path.join(output, ".claude-plugin/marketplace.json"), {
-  name: "snow-browser-plugins",
+  name: "cdphelper-plugins",
+  description: "cdpHelper browser automation plugin marketplace",
   owner: { name: "itMrBoy" },
-  plugins: [{ name: "snow-browser", source: "./plugins/snow-browser", version }],
+  plugins: [{ name: "cdphelper", source: "./plugins/cdphelper", version }],
 });
 const dependencies = [...packages].map(([name, data]) => ({ name, version: data.version }));
 await fs.writeFile(
@@ -221,7 +224,7 @@ const buildMetadata = {
   extension_version: version,
   expected_extension_id: expectedExtensionId,
   release_url: `https://github.com/itMrBoy/cdpHelper/releases/tag/v${version}`,
-  extension_download_url: `https://github.com/itMrBoy/cdpHelper/releases/download/v${version}/snow-browser-extension-v${version}.zip`,
+  extension_download_url: `https://github.com/itMrBoy/cdpHelper/releases/download/v${version}/cdphelper-extension-v${version}.zip`,
   dependencies,
 };
 const runtimeDigest = hash(JSON.stringify({ files: await inventory(runtime), metadata: buildMetadata }));
@@ -247,7 +250,7 @@ await fs.copyFile(
   path.join(root, "dist/extension-notices/THIRD_PARTY_NOTICES.md"),
   path.join(stage, "THIRD_PARTY_NOTICES.md"),
 );
-const zipName = `snow-browser-extension-v${version}.zip`;
+const zipName = `cdphelper-extension-v${version}.zip`;
 const zipFile = path.join(releases, zipName);
 await removeDist(zipFile);
 try {
@@ -258,13 +261,13 @@ try {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "$ErrorActionPreference = 'Stop'; Compress-Archive -LiteralPath 'README.md','README.zh-CN.md','THIRD_PARTY_NOTICES.md','LICENSES','extension' -DestinationPath $env:SNOW_EXTENSION_ARCHIVE -CompressionLevel Optimal",
+        "$ErrorActionPreference = 'Stop'; Compress-Archive -LiteralPath 'README.md','README.zh-CN.md','THIRD_PARTY_NOTICES.md','LICENSES','extension' -DestinationPath $env:CDPHELPER_EXTENSION_ARCHIVE -CompressionLevel Optimal",
       ],
       {
         cwd: stage,
         stdio: "inherit",
         windowsHide: true,
-        env: { ...process.env, SNOW_EXTENSION_ARCHIVE: zipFile },
+        env: { ...process.env, CDPHELPER_EXTENSION_ARCHIVE: zipFile },
       },
     );
   } else {
@@ -294,7 +297,7 @@ await writeJSON(path.join(releases, "release-manifest.json"), {
   marketplace_directory: "../plugin-marketplace",
   marketplace_inventory_sha256: hash(JSON.stringify(await inventory(output))),
   plugin_artifact: {
-    path: "../plugin-marketplace/plugins/snow-browser/artifact.json",
+    path: "../plugin-marketplace/plugins/cdphelper/artifact.json",
     sha256: hash(await fs.readFile(artifactFile)),
     digest: runtimeDigest,
   },

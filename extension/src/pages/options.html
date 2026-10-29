@@ -1,5 +1,5 @@
 <!doctype html>
-<title>ModCDP</title>
+<title>cdpHelper</title>
 <style>
   body {
     margin: 24px;
@@ -42,19 +42,19 @@
   }
 </style>
 <button id="refresh">Refresh</button>
-<h1>ModCDP</h1>
-<section id="snow-bridge" hidden>
-  <h2>Snow Browser / 雪诺浏览器</h2>
-  <p id="snow-status">Disconnected / 未连接</p>
-  <form id="snow-settings">
+<h1>cdpHelper</h1>
+<section id="cdphelper-bridge" hidden>
+  <h2>cdpHelper</h2>
+  <p id="cdphelper-status">Disconnected / 未连接</p>
+  <form id="cdphelper-settings">
     <p>
-      <label>Instance name / 实例名称 <input id="snow-name" maxlength="80" /></label>
+      <label>Instance name / 实例名称 <input id="cdphelper-name" maxlength="80" /></label>
     </p>
     <p>
-      <label>Local service / 本机服务 <input id="snow-url" size="42" required /></label>
+      <label>Local service / 本机服务 <input id="cdphelper-url" size="42" required /></label>
     </p>
     <button type="submit">Save and reconnect / 保存并重连</button>
-    <span id="snow-settings-result" role="status"></span>
+    <span id="cdphelper-settings-result" role="status"></span>
   </form>
   <p>
     Load this extension in the browser window you want to control. Match the short instance ID above with the AI

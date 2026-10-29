@@ -24,9 +24,9 @@ export class BrowserBroker {
   constructor({
     home,
     extensionId,
-    extensionVersion = "0.1.0",
+    extensionVersion = "0.1.1",
     bridgePort = 29393,
-    releaseUrl = "https://github.com/itMrBoy/cdpHelper/releases/tag/v0.1.0",
+    releaseUrl = "https://github.com/itMrBoy/cdpHelper/releases/tag/v0.1.1",
     checkIsolated = isolatedRunning,
     connect = (endpoint) => chromium.connectOverCDP(endpoint, { noDefaults: true, timeout: 15000 }),
   }) {
@@ -154,7 +154,7 @@ export class BrowserBroker {
       const instance = {
         key,
         short,
-        name: hello.name?.trim() || "Snow " + short,
+        name: hello.name?.trim() || "cdpHelper " + short,
         proxy,
         record,
         peer,

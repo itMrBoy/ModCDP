@@ -24,7 +24,7 @@ async function main() {
   const root = path.dirname(fileURLToPath(import.meta.url));
   const inventory = JSON.parse(await readFile(path.join(root, "artifact.json"), "utf8"));
   const homeIndex = process.argv.indexOf("--home");
-  const home = path.resolve(homeIndex >= 0 ? process.argv[homeIndex + 1] : path.join(homedir(), ".snow-browser"));
+  const home = path.resolve(homeIndex >= 0 ? process.argv[homeIndex + 1] : path.join(homedir(), ".cdphelper"));
   await verify(root, inventory.files);
   if (process.argv.includes("--check")) {
     process.stdout.write(
@@ -58,6 +58,6 @@ async function main() {
   await import(pathToFileURL(path.join(installed, "cli.mjs")).href);
 }
 main().catch((error) => {
-  console.error(`Snow Browser: ${error.message}`);
+  console.error(`cdpHelper: ${error.message}`);
   process.exitCode = 1;
 });

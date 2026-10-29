@@ -28,7 +28,7 @@ ModCDP 通过浏览器扩展为 CDP 增加自定义命令、事件和中间件�
 | `js/`                  | TypeScript/JavaScript 客户端，以及 Node 代理、浏览器端服务实现和开发工具 | 启动当前代理、使用 JS SDK 或构建扩展 |
 | `extension/`           | 浏览器扩展入口与静态页面，服务逻辑复用 `js/` 中的实现                    | 加载到受控浏览器中                   |
 | `plugin/`              | 共用本机 MCP 运行时与启动器                                              | 通过 Codex 或 Claude Code 操作雪诺   |
-| `skills/snow-browser/` | 两端共用技能源码                                                         | 模式选择、网页操作及退出清理指引     |
+| `skills/cdphelper/` | 两端共用技能源码                                                         | 模式选择、网页操作及退出清理指引     |
 | `dist/`                | 构建后的 JS、可加载扩展及 ZIP 产物                                       | 运行 Node CLI、安装构建后的扩展      |
 
 扩展统一输出到 `dist/`，独立 Node 代理与插件入口均可使用。
@@ -83,13 +83,13 @@ NATS 可通过 `--enable-nats` 开启，也可与 `--enable-reversews` 同时传
 
 ## Codex / Claude Code 雪诺浏览器插件
 
-唯一插件市场入口为 [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper) 的 main 分支：根目录放两端 marketplace，`plugins/snow-browser/` 放编译后的插件和生产依赖，`source/ModCDP` 子模块追溯源码。本 ModCDP 仓库只维护源码、构建和测试，不能把源码根目录当作可安装插件市场。分发仓库和 Release 尚待发布及完整验收，当前不能宣称用户已可从远端安装。
+唯一插件市场入口为 [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper) 的 main 分支：根目录放两端 marketplace，`plugins/cdphelper/` 放编译后的插件和生产依赖，`source/ModCDP` 子模块追溯源码。本 ModCDP 仓库只维护源码、构建和测试，不能把源码根目录当作可安装插件市场。分发仓库和 Release 尚待发布及完整验收，当前不能宣称用户已可从远端安装。
 
-用户只需 Node ≥22 和已安装的雪诺，无需 npm/pnpm install、本地构建或下载 Chromium。扩展由用户自行下载独立 Release ZIP，解压后在每个目标 profile 手动加载其中含 `manifest.json` 的 `extension/` 子目录（不是 ZIP 根目录）；计划附件为 tag `v0.1.0` 下的 `snow-browser-extension-v0.1.0.zip`，目前尚未发布。插件不接收扩展目录、不下载或复制扩展、不改写公共扩展目录；每个 profile 的身份和连接配置存在扩展自己的 storage 中。
+用户只需 Node ≥22 和已安装的雪诺，无需 npm/pnpm install、本地构建或下载 Chromium。扩展由用户自行下载独立 Release ZIP，解压后在每个目标 profile 手动加载其中含 `manifest.json` 的 `extension/` 子目录（不是 ZIP 根目录）；计划附件为 tag `v0.1.1` 下的 `cdphelper-extension-v0.1.1.zip`，目前尚未发布。插件不接收扩展目录、不下载或复制扩展、不改写公共扩展目录；每个 profile 的身份和连接配置存在扩展自己的 storage 中。
 
 每会话首次操作先调用 `browser_status`，展示已有实例的名称、短编号与状态，再在同一个问题中让用户选已有实例或启动新的隔离实例；不先泛问模式。普通 profile 统一通过 `127.0.0.1:29393/bridge` 登记；`browser_status` 返回带短编号的 inventory，用户选定后，技能映射为 UUID，调用 `browser_select({mode:"reuse",instance_id:"<UUID>"})`。隔离模式使用 `browser_select({mode:"isolated"})` 请求独立 profile，以一次性启动 URL 关联扩展。URL 只证明启动意图，不证明真实隔离：雪诺可能退出新进程或将 URL 打开到原有窗口。接入带隔离 nonce 的连接及每次自有实例网页操作前，Broker 都核验实际可执行文件与精确 profile 参数对应的存活进程；失败则 detach，不发送页面操作。目前该核验仅实现于 Windows，其他平台隔离模式保持不可验证并拒绝操作，复用不受影响。真实雪诺隔离验收尚未通过。两种模式都通过 Playwright 操作网页，Computer Use 只可启动雪诺。
 
-不同标签页可以并行，同一标签页由一个会话独占。断线后旧引用失效，重新读取 inventory 并按用户明确选择实例，再发现和绑定页面，不自动 rebind 或重放提交。离开隔离实例前询问是否关闭并清理；未明确同意和异常断开均保留。复用浏览器与标签页始终保留。安装、升级及源码兼容入口见 [连接说明](skills/snow-browser/references/setup.md)。不发布自有 npm 包；技术校验和测试通过不代表已取得上游分发授权。
+不同标签页可以并行，同一标签页由一个会话独占。断线后旧引用失效，重新读取 inventory 并按用户明确选择实例，再发现和绑定页面，不自动 rebind 或重放提交。离开隔离实例前询问是否关闭并清理；未明确同意和异常断开均保留。复用浏览器与标签页始终保留。安装、升级及源码兼容入口见 [连接说明](skills/cdphelper/references/setup.md)。不发布自有 npm 包；技术校验和测试通过不代表已取得上游分发授权。
 
 ## 两种启动方式
 

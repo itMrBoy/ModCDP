@@ -17,7 +17,7 @@ export async function startBridge({ port, extensionId, extensionVersion, registe
       "content-security-policy": "default-src 'none'",
     });
     res.end(
-      "<!doctype html><title>Snow Browser connection</title><h1>Snow Browser</h1><p>Enable the Snow bridge extension in this window. Keep this tab open until the instance appears in browser_status.</p>",
+      "<!doctype html><title>cdpHelper connection</title><h1>cdpHelper</h1><p>Enable the cdpHelper bridge extension in this window. Keep this tab open until the instance appears in browser_status.</p>",
     );
   });
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
@@ -103,7 +103,7 @@ export async function startBridge({ port, extensionId, extensionVersion, registe
         for (const message of buffered) relay(message);
         buffered = [];
       })().catch((error) => {
-        console.error(`Snow bridge: ${error.message}`);
+        console.error(`cdpHelper bridge: ${error.message}`);
         peer.close(1008, "Extension registration failed; check protocol and local service logs");
       });
       tasks.add(task);
@@ -117,7 +117,9 @@ export async function startBridge({ port, extensionId, extensionVersion, registe
     });
   } catch (error) {
     wss.close();
-    throw new Error(`Cannot listen on Snow bridge port ${port}: ${error.message}. No existing process was terminated.`);
+    throw new Error(
+      `Cannot listen on cdpHelper bridge port ${port}: ${error.message}. No existing process was terminated.`,
+    );
   }
   return {
     port: server.address().port,

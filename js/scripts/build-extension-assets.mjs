@@ -12,7 +12,7 @@ const { values } = parseArgs({
     "enable-reversews": { type: "boolean", default: false },
     "enable-nats": { type: "boolean", default: false },
     "no-sourcemap": { type: "boolean", default: false },
-    "snow-plugin": { type: "boolean", default: false },
+    "cdphelper-plugin": { type: "boolean", default: false },
   },
 });
 
@@ -39,7 +39,7 @@ const copy = (from, to) => {
 };
 
 copy("extension/manifest.json", "dist/extension/manifest.json");
-if (values["snow-plugin"]) {
+if (values["cdphelper-plugin"]) {
   const { version } = JSON.parse(fs.readFileSync(path.join(root, "plugin/version.json"), "utf8"));
   const manifestFile = path.join(dist_extension, "manifest.json");
   const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
@@ -47,7 +47,7 @@ if (values["snow-plugin"]) {
   fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
   const source_commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   fs.writeFileSync(
-    path.join(dist_extension, "snow-bridge.json"),
+    path.join(dist_extension, "cdphelper-bridge.json"),
     JSON.stringify(
       {
         protocol_version: 2,
@@ -76,9 +76,9 @@ const bundle = await build({
   platform: "browser",
   target: ["chrome116"],
   define: {
-    __MODCDP_ENABLE_REVERSEWS__: String(values["enable-reversews"] || values["snow-plugin"]),
+    __MODCDP_ENABLE_REVERSEWS__: String(values["enable-reversews"] || values["cdphelper-plugin"]),
     __MODCDP_ENABLE_NATS__: String(values["enable-nats"]),
-    __SNOW_PLUGIN_BRIDGE__: String(values["snow-plugin"]),
+    __CDPHELPER_PLUGIN_BRIDGE__: String(values["cdphelper-plugin"]),
   },
   sourcemap: !values["no-sourcemap"],
   logLevel: "silent",

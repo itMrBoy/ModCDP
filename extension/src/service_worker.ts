@@ -7,9 +7,9 @@ import type { ReverseWSBridgeOptions } from "../../js/src/transport/ReverseWSDow
 
 declare const __MODCDP_ENABLE_REVERSEWS__: boolean;
 declare const __MODCDP_ENABLE_NATS__: boolean;
-declare const __SNOW_PLUGIN_BRIDGE__: boolean;
+declare const __CDPHELPER_PLUGIN_BRIDGE__: boolean;
 
-const snowPlugin = typeof __SNOW_PLUGIN_BRIDGE__ !== "undefined" && __SNOW_PLUGIN_BRIDGE__;
+const snowPlugin = typeof __CDPHELPER_PLUGIN_BRIDGE__ !== "undefined" && __CDPHELPER_PLUGIN_BRIDGE__;
 const defaultSnowBridgeUrl = "ws://127.0.0.1:29393/bridge";
 
 function snowBridgeUrl(value: unknown) {
@@ -26,7 +26,7 @@ function snowBridgeUrl(value: unknown) {
     url.search ||
     url.hash
   ) {
-    throw new Error("Snow bridge URL must be ws://127.0.0.1:<port>/bridge.");
+    throw new Error("cdpHelper bridge URL must be ws://127.0.0.1:<port>/bridge.");
   }
   return url;
 }

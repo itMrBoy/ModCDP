@@ -48,12 +48,11 @@ test(
       logLevel: "silent",
     });
     const { BrowserBroker } = await import(pathToFileURL(bundled).href);
-    const metadata = JSON.parse(
-      await readFile("dist/plugin-marketplace/plugins/snow-browser/runtime/build.json", "utf8"),
-    );
+    const metadata = JSON.parse(await readFile("dist/plugin-marketplace/plugins/cdphelper/runtime/build.json", "utf8"));
     const broker = new BrowserBroker({
       home: path.join(scratch, "home"),
       extensionId: metadata.expected_extension_id,
+      extensionVersion: metadata.extension_version,
       bridgePort: 0,
       // The late-init record below represents an owned process fixture, not Snow acceptance.
       checkIsolated: async () => true,

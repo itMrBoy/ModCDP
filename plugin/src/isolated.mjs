@@ -42,7 +42,7 @@ export async function launchIsolated(home, instanceId, executable, startupUrl = 
     created_at: new Date().toISOString(),
     mode: "isolated",
   };
-  await writeFile(path.join(profile, ".snow-browser-owner.json"), JSON.stringify(record));
+  await writeFile(path.join(profile, ".cdphelper-owner.json"), JSON.stringify(record));
   proc.unref();
   return { record, proc };
 }
@@ -58,7 +58,7 @@ async function ownedProfile(record, home) {
     !path.basename(profile).startsWith("isolated-")
   )
     throw new Error("Refusing access outside the owned isolated profile directory.");
-  const marker = JSON.parse(await readFile(path.join(profile, ".snow-browser-owner.json"), "utf8"));
+  const marker = JSON.parse(await readFile(path.join(profile, ".cdphelper-owner.json"), "utf8"));
   if (
     record.mode !== "isolated" ||
     marker.mode !== "isolated" ||

@@ -32,14 +32,14 @@ You can send `Mod.*`, `Custom.*`, etc. through standard Playwright/Puppeteer/oth
 
 ## Repository components
 
-The JavaScript SDK, browser extension, and Snow Browser plugin share the browser-side implementation.
+The JavaScript SDK, browser extension, and cdpHelper plugin share the browser-side implementation.
 
 | Directory              | Responsibility                                                                                          | Use it when                                                            |
 | ---------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `js/`                  | TypeScript/JavaScript client, Node proxy/CLI, browser-side server implementation, and development tools | Running the current proxy, using the JS SDK, or building the extension |
 | `extension/`           | Shared browser extension entry point and static pages; reuses server logic from `js/`                   | Installing the bridge in the controlled browser                        |
 | `plugin/`              | Shared local MCP runtime and launcher                                                                   | Operating Snow Browser through Codex or Claude Code                    |
-| `skills/snow-browser/` | Shared skill source                                                                                     | Browser selection, operation, and cleanup instructions for both hosts  |
+| `skills/cdphelper/` | Shared skill source                                                                                     | Browser selection, operation, and cleanup instructions for both hosts  |
 
 Extension builds write only to `dist/`. The standalone Node proxy remains available alongside the plugin.
 
@@ -62,17 +62,17 @@ pnpm run build:plugin             # Portable Codex / Claude Code marketplace wit
 
 Outputs include `dist/js/`, the unpacked extension in `dist/extension/`, and `dist/extension.zip`. Building does not reload an installed extension or watch files.
 
-For standalone SDK usage, choose one of the [proxy shortcuts](#proxy-shortcuts-and-paseo) below. The Snow Browser plugin is described in the next section. Existing-browser mode supports browsers with external CDP access disabled, provided extension installation and `chrome.debugger` access are allowed. It does not bypass browser or administrator restrictions on those capabilities.
+For standalone SDK usage, choose one of the [proxy shortcuts](#proxy-shortcuts-and-paseo) below. The cdpHelper plugin is described in the next section. Existing-browser mode supports browsers with external CDP access disabled, provided extension installation and `chrome.debugger` access are allowed. It does not bypass browser or administrator restrictions on those capabilities.
 
-## Snow Browser plugin for Codex and Claude Code
+## cdpHelper plugin for Codex and Claude Code
 
-The plugin distribution entry is [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper), on its `main` branch. Its root holds the Codex and Claude Code marketplaces, `plugins/snow-browser/` holds the compiled plugin and production dependencies, and `source/ModCDP` is the source submodule. This ModCDP repository maintains source, builds, and tests; its root is not the installable marketplace. The distribution repository and Release still require publication and end-to-end acceptance before these are advertised as ready.
+The plugin distribution entry is [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper), on its `main` branch. Its root holds the Codex and Claude Code marketplaces, `plugins/cdphelper/` holds the compiled plugin and production dependencies, and `source/ModCDP` is the source submodule. This ModCDP repository maintains source, builds, and tests; its root is not the installable marketplace. The distribution repository and Release still require publication and end-to-end acceptance before these are advertised as ready.
 
-Users need Node ≥22 and Snow Browser; no npm/pnpm install, local build, or Chromium download is required. The browser extension is a separate Release asset, planned as `snow-browser-extension-v0.1.0.zip` under tag `v0.1.0`; it is not published yet. Users download and unpack it, then manually load the `extension/` subdirectory containing `manifest.json` in each target profile; the ZIP root is not loadable. The plugin does not accept extension directories, download/copy extension resources, or write connection configuration into a shared extension folder. Profile identity lives in extension storage.
+Users need Node ≥22 and Snow Browser; no npm/pnpm install, local build, or Chromium download is required. The browser extension is a separate Release asset, planned as `cdphelper-extension-v0.1.1.zip` under tag `v0.1.1`; it is not published yet. Users download and unpack it, then manually load the `extension/` subdirectory containing `manifest.json` in each target profile; the ZIP root is not loadable. The plugin does not accept extension directories, download/copy extension resources, or write connection configuration into a shared extension folder. Profile identity lives in extension storage.
 
 Each session first calls `browser_status`, displays the registered instances with names, short IDs and states, and asks a single question offering those instances plus a new isolated Snow instance. Do not ask a generic mode question before listing the inventory. Ordinary profiles register through `127.0.0.1:29393/bridge`. For reuse, `browser_status` shows an inventory with short numbers; after the user chooses, the skill passes that instance's UUID to `browser_select({mode:"reuse", instance_id:"<UUID>"})`. Isolated mode uses `browser_select({mode:"isolated"})` to request a separate profile and associate the extension using a one-time startup URL. The URL proves the requested launch, not that Snow kept a separate profile: Snow may exit the new process or open the URL in an existing window. Before accepting an owned connection and before each owned page operation, the broker verifies a live process with the exact owned profile and executable; failure detaches the connection and sends no page operation. This verification currently exists only on Windows. Other platforms fail closed for isolated mode; reuse is unaffected. Real Snow isolated-mode acceptance is not complete. Both modes use Playwright through the bridge; Computer Use may only launch Snow.
 
-Different tabs can run concurrently, with one owner per tab. Disconnects invalidate old references: users explicitly select again before tabs are rediscovered and bound, without automatic rebind or side-effect replay. Before leaving an isolated instance, ask whether to close and clean its profile; absent consent, retain it. Reused browsers and their tabs remain open. See [installation and connection](skills/snow-browser/references/setup.md). Plugin-format validation and runtime tests do not establish upstream redistribution authorization.
+Different tabs can run concurrently, with one owner per tab. Disconnects invalidate old references: users explicitly select again before tabs are rediscovered and bound, without automatic rebind or side-effect replay. Before leaving an isolated instance, ask whether to close and clean its profile; absent consent, retain it. Reused browsers and their tabs remain open. See [installation and connection](skills/cdphelper/references/setup.md). Plugin-format validation and runtime tests do not establish upstream redistribution authorization.
 
 ## Use the JS SDK
 
@@ -314,7 +314,7 @@ js/                       TypeScript client/server/proxy package
   examples/
   test/
 plugin/                   Local MCP runtime, launcher, and acceptance tests
-skills/snow-browser/      Shared Codex / Claude Code skill source
+skills/cdphelper/      Shared Codex / Claude Code skill source
 dist/                     Built JS, extension, ZIP, and plugin-marketplace artifacts
 ```
 

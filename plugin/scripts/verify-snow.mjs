@@ -10,7 +10,7 @@ import http from "node:http";
 const mode = process.argv[2];
 if (!["reuse", "isolated"].includes(mode))
   throw new Error("Choose explicitly: node plugin/scripts/verify-snow.mjs reuse|isolated");
-const home = path.resolve(".llmdoc-tmp/snow-plugin-acceptance");
+const home = path.resolve(".llmdoc-tmp/cdphelper-plugin-acceptance");
 await mkdir(home, { recursive: true });
 let questionNumber = 0;
 const input = process.argv.includes("--file-control")
@@ -34,7 +34,7 @@ const input = process.argv.includes("--file-control")
   : createInterface({ input: process.stdin, output: process.stdout });
 const transport = new StdioClientTransport({
   command: process.execPath,
-  args: [path.resolve("dist/plugin-marketplace/plugins/snow-browser/launch.mjs"), "--home", home],
+  args: [path.resolve("dist/plugin-marketplace/plugins/cdphelper/launch.mjs"), "--home", home],
   stderr: "inherit",
 });
 const client = new Client({ name: "snow-manual-acceptance", version: "0.1.0" });

@@ -149,7 +149,7 @@ export async function ensureDaemon({ home, runtime, entry, bridgePort }) {
         continue;
       } catch (error) {
         if (alive(meta.pid))
-          throw new Error(`Cannot reuse the local Snow runtime: ${error.message}. No process was terminated.`);
+          throw new Error(`Cannot reuse the local cdpHelper runtime: ${error.message}. No process was terminated.`);
       }
     }
     let lock;
@@ -215,5 +215,5 @@ export async function ensureDaemon({ home, runtime, entry, bridgePort }) {
       await unlink(lockFile).catch(() => {});
     }
   }
-  throw new Error("Another client is starting the Snow runtime; retry shortly.");
+  throw new Error("Another client is starting the cdpHelper runtime; retry shortly.");
 }

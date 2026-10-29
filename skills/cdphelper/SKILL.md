@@ -1,11 +1,11 @@
 ---
-name: snow-browser
+name: cdphelper
 description: 当用户要求使用雪诺浏览器（Snow Browser、Snow 浏览器、snowview）访问或操作网页、检查页面、截图时使用。先列出已登记实例供用户选择或新开隔离实例，再通过插件 MCP 的 ModCDP 与 Playwright 工具操作。仅讨论雪诺源码或功能时不触发。
 ---
 
-# 雪诺浏览器
+# cdpHelper
 
-Codex 与 Claude Code 共用本技能，通过 Snow Browser 插件 MCP 和 Playwright 操作雪诺。默认入口为 cdpHelper 的 main 分支插件市场；扩展从同一发布的独立 Release ZIP 下载后由用户手动加载。安装和排错见 [setup.md](references/setup.md)。
+Codex 与 Claude Code 共用本技能，通过 cdpHelper 插件 MCP 和 Playwright 操作雪诺。默认入口为 cdpHelper 的 main 分支插件市场；扩展从同一发布的独立 Release ZIP 下载后由用户手动加载。安装和排错见 [setup.md](references/setup.md)。
 
 ## 首次选择与实例识别
 

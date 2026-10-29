@@ -1,4 +1,4 @@
-# 雪诺浏览器扩展
+# cdpHelper 浏览器扩展
 
 此压缩包仅包含浏览器扩展。AI 插件请从 [cdpHelper 插件市场](https://github.com/itMrBoy/cdpHelper)单独安装。插件需要 Node >=22；用户无需执行 npm install，也不下载 Chromium。
 
@@ -11,4 +11,4 @@
 
 升级时下载并解压对应版本，在每个目标 profile 中更新或重新加载扩展，再核对新的短编号。插件不会下载、缓存、复制或安装本扩展。网页操作使用 Playwright；Computer Use 仅可用于启动雪诺。已有浏览器窗口会保留，关闭和清理 AI 创建的隔离 profile 前会征求用户确认。
 
-`extension/snow-bridge.json` 记录插件/扩展版本、桥接协议和源码提交。Release 同时提供 `release-manifest.json` 和 `SHA256SUMS` 供完整性校验。标记 `source_dirty: true` 的构建仅用于本地开发，不能作为锁定源码的发布候选。
+`extension/cdphelper-bridge.json` 记录插件/扩展版本、桥接协议和源码提交。Release 同时提供 `release-manifest.json` 和 `SHA256SUMS` 供完整性校验。标记 `source_dirty: true` 的构建仅用于本地开发，不能作为锁定源码的发布候选。

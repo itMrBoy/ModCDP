@@ -28,7 +28,7 @@ function peer(port, launch_token) {
         JSON.stringify({
           type: "modcdp.reverse.hello",
           version: 2,
-          extension_version: "0.1.0",
+          extension_version: "0.1.1",
           extension_id: extensionId,
           ...(launch_token ? { launch_token } : {}),
         }),
