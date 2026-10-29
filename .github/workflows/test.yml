@@ -8,7 +8,6 @@ jobs:
     timeout-minutes: 30
     env:
       CI: "true"
-      SNOW_TEST_HEADED: "1"
       BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +25,7 @@ jobs:
           echo "CHROME_PATH=$browser_path" >> "$GITHUB_ENV"
       - run: pnpm run build
       - run: pnpm run build:plugin
-      - run: xvfb-run --auto-servernum pnpm run test:plugin
+      - run: pnpm run test:plugin
       - run: pnpm exec vitest run --fileParallelism=false --maxWorkers=1
       - name: Run demos serially
         run: |

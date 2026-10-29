@@ -76,7 +76,7 @@ test(
       for (const alias of ["Profile A", "Profile B"]) {
         const context = await chromium.launchPersistentContext(path.join(scratch, alias), {
           executablePath,
-          headless: process.env.SNOW_TEST_HEADED !== "1",
+          headless: true,
           ignoreDefaultArgs: ["--disable-extensions"],
           args: [
             `--disable-extensions-except=${extension}`,
@@ -85,6 +85,14 @@ test(
           ],
         });
         contexts.push(context);
+        // Match manual unpacked-extension installation. Recent Chromium disables
+        // a developer extension on reload if the profile's developer mode is off.
+        const extensionsPage = await context.newPage();
+        await extensionsPage.goto("chrome://extensions");
+        const developerMode = extensionsPage.locator("#devMode");
+        if (!(await developerMode.evaluate((toggle) => toggle.checked))) await developerMode.click();
+        assert.equal(await developerMode.evaluate((toggle) => toggle.checked), true);
+        await extensionsPage.close();
         const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
         await until(
           () => worker.evaluate(() => Boolean(chrome.storage?.local)),
