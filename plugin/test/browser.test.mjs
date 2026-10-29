@@ -77,6 +77,7 @@ test(
         const context = await chromium.launchPersistentContext(path.join(scratch, alias), {
           executablePath,
           headless: true,
+          ignoreDefaultArgs: ["--disable-extensions"],
           args: [
             `--disable-extensions-except=${extension}`,
             `--load-extension=${extension}`,
