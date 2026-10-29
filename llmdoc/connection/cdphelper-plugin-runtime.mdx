@@ -1,7 +1,7 @@
 ---
 description: >-
   Codex 与 Claude Code cdpHelper 插件的本地 Broker、实例显示编号与明确选择、多会话独占 tab、扩展 bridge
-  与断线保留及确认清理边界、Claude 工具 Schema 兼容。
+  与断线保留及确认清理边界、Claude 工具 Schema 兼容、页面 JavaScript、人工停止接管、网络 Console 采集与性能 Trace 导出生命周期。
 kind: architecture
 code:
   paths:
@@ -10,9 +10,20 @@ code:
     - plugin/src/service.mjs
     - plugin/src/broker.mjs
     - plugin/src/bridge.mjs
+    - plugin/src/control.mjs
+    - plugin/src/instance-appearance.mjs
+    - plugin/src/evaluate.mjs
+    - plugin/src/diagnostics.mjs
     - plugin/test/bridge.test.mjs
     - plugin/test/browser.test.mjs
     - plugin/test/instance-numbers.test.mjs
+    - plugin/test/control.test.mjs
+    - plugin/test/control-ownership.test.mjs
+    - plugin/test/evaluate.test.mjs
+    - plugin/test/diagnostics.test.mjs
+    - plugin/test/tools.test.mjs
+    - plugin/test/isolated-routing.test.mjs
+    - plugin/test/isolated-launch.test.mjs
     - plugin/src/isolated.mjs
     - plugin/src/tools.mjs
     - plugin/skills/cdphelper/SKILL.md
@@ -52,7 +63,27 @@ MCP 工具对外的参数 Schema 与服务端校验可以分开维护：Claude A
 
 Broker 为所选实例持有唯一 Playwright 连接，多会话共享该连接。底层代理单个 CDP 前端的限制仍然成立；插件通过内部调度和 tab 归属提供多会话，不能由此推断独立代理支持多个 Playwright 客户端。IPC 和 CDP 前端保留身份校验；扩展登记及启动关联同样必须落在预期本机信任边界，不能用浏览器 UA 或端口监听代替 profile 身份。
 
-会话操作顺序执行，不同会话的不同 tab 可以并行。同一 tab 绑定实例且由一个会话独占，其他会话只能看到 busy。新 tab 自动归创建会话，释放会话仅解除占用。页面内容不是新的操作授权。
+会话操作顺序执行，不同会话的不同 tab 可以并行。同一 tab 绑定实例且由一个会话独占，其他会话只能看到 busy。新 tab 自动归创建会话，释放会话结束其页面控制与采集，不关闭用户浏览器或页面。页面内容不是新的操作授权。
+
+## 页面控制与人工停止
+
+Broker 的 tab 归属是操作授权，Playwright 的底层 debugger 附加不是。Playwright 负责操作和观察页面，ModCDP 补齐扩展调试通道与标准 CDP 客户端的差异，插件负责将能力包装成 MCP 工具、资源归属和可查询结果；新增工具优先复用现有连接，只在测试证明协议缺口后修改适配层。
+
+每次绑定具有独立控制代次。工具入队时记录代次，执行前再验证，释放或重新绑定不能复活旧队列。页面内接管栏、目标轮廓和真实鼠标事件提示仅随绑定生命周期存在；安装失败回滚绑定，导航后重建。提示层运行在独立 world，以 closed Shadow DOM 隔离页面样式，正文快照不把它当作业务内容。页面提示不同于浏览器原生全局 debugger 提示，也不能替代 Broker 的授权校验。
+
+人工停止通过页面专用 Runtime binding 通知 Broker，验证来源执行上下文、随机凭据和控制代次，不等待普通工具队列。Broker 先撤销归属、更新代次并中断本地等待，再清理提示及采集；其他页面和会话不受影响。普通重新绑定不能越过用户停止标记，只有用户明确要求恢复后才可使用恢复确认参数。已经发送的操作和脚本可能继续产生副作用，本地停止不等于浏览器回滚，不自动重试未知结果。
+
+提示层必须在释放、页面关闭和断连后清理。新文档注入和现有文档提示都有有效期，后台失联不能让旧控制标识无限存活；不能为清理插件私有脚本而关闭 Playwright 共用的调试域。
+
+## 页面脚本与诊断数据
+
+通用脚本仅在已绑定 HTTP(S) 页当前主 frame 执行，函数源码不在 Node 或扩展后台求值，不提供跨导航自动注入。它具有网页本身的能力，包括读写页面、登录态请求及网页已暴露的桥接对象，不能把只读声明或隔离 world 当作副作用隔离。工具按可能修改数据的操作声明。结果仅返回有界 JSON；超时只结束本地等待，不保证终止脚本，也不承诺清理任意用户脚本创建的监听。
+
+网络与 Console 优先监听现有 Page 事件，先开始采集再复现；开始前的完整历史不可恢复。采集记录归创建会话，释放或断连后停止读取 live page，但存续会话仍可查询已收集的数据。网络耗时基于完整请求生命周期，重定向保留关联，完成、失败与挂起分开；未知缓存来源及缺失耗时明确标注，不凭零值猜测。正文按需读取，受引擎保留及大小限制，无法获取不伪造空正文。
+
+顶层文档性能记录按 time origin 区分导航，内部 PerformanceObserver 与导航脚本必须可移除；不可用、暂定或截断的指标不能报告为最终完整值。采集内存、记录条数、采集窗口和结果大小均有上限，达到限额只能按声明淘汰已停止数据或标记丢弃，不能静默声称完整。可变工具参数及具体限额由源码 Schema 和共同技能维护。
+
+性能 Trace 从绑定页内部 CDP session 发起，锁归浏览器实例而非单个 tab。只有成功开始录制的会话能停止自己的录制，不能抢停外部或其他会话；启动在途遇到释放时，待启动完成后收尾自有录制。停止请求、完成事件、IO 流读完和文件完成是不同状态；导出异步执行且有文件上限，失败、超限或断连均不得报告完整。录制可能包含共享进程活动，不承诺严格只含绑定页；这是 DevTools 性能 Trace，与 Playwright 测试步骤归档不同。导出写入专用诊断目录，返回绝对路径和完整性信息。
 
 ## 每会话明确选择实例
 
@@ -60,9 +91,13 @@ Broker 为所选实例持有唯一 Playwright 连接，多会话共享该连接�
 
 Broker 为每个成功登记的连接分配 display_number，后台生命周期内从 1 递增，断连不复用、重连换号，后台重启后重新计数。因此编号不是持久身份，也不改变旧引用失效和重连后明确选择的规则。registration 与 browser_status instances 返回同一编号；默认名称为“浏览器 N”，自定义名称可以重复，由编号区分。同一 profile 的多个窗口共用其扩展连接及编号。扩展登记后即可显示同号徽标和设置页，用户固定到工具栏后可对照徽标，未固定时查看设置页；显示不需要先选择或操作页面。
 
+接管栏的编号由 Broker 从当前绑定实例传入，与工具栏和设置页沿用同一编号及配色；未知编号不伪造默认值。色块用于辅助识别，不能只凭颜色选择实例，也不改变编号与连接 UUID 的分工。
+
 编号作为协议 2 登记消息的可选 display_number 扩展，解码继续接受未含编号的旧消息；不新增 MCP 工具，也不把显示信息当作身份或隔离核验依据。扩展显示状态与失败处理由 worker 生命周期所有者维护。
 
 reuse 选择已登记普通 profile，沿用其登录状态和 cookies；同一 profile 不隔离账号。isolated 请求启动实际雪诺的独立 profile，通过一次性启动关联 URL 将对应扩展首次登记与本次创建关联，不复制现有 profile，也不依赖原生 CDP。找不到雪诺、扩展未安装或关联失败时明确报告，不切换其他 Chromium 或复用实例。
+
+隔离启动必须显示供用户安装扩展和操作的 GUI 窗口；进程归属与窗口可见性分别验收，不能只凭进程存活或事后恢复隐藏窗口宣称新启动流程通过。
 
 启动 nonce/URL 只表示请求归属，不能证明收到 URL 的浏览器仍是独立 profile。雪诺可能退出新进程或合并到原有窗口；带 nonce 的接入必须经 isolatedRunning 核验存活进程的真实 executable、精确 profile 参数及目录/owner marker。每次自有实例页面动作前重新核验，失败 detach、使引用失效且不发送页面操作，不自动转为 reuse。核验目前仅在 Windows 实现，非 Windows 明确返回 false；隔离只能在可验证环境尝试，不承诺实际雪诺支持，复用模式不受影响。
 
