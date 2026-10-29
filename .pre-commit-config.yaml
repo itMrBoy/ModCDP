@@ -55,5 +55,6 @@ repos:
       - id: detect-private-key
       - id: debug-statements
       - id: forbid-submodules
+        exclude: ^cdpHelper$
       - id: check-added-large-files
         args: ["--maxkb=600"]

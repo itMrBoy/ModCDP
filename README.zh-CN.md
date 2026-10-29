@@ -83,7 +83,9 @@ NATS 可通过 `--enable-nats` 开启，也可与 `--enable-reversews` 同时传
 
 ## Codex / Claude Code 雪诺浏览器插件
 
-唯一插件市场入口为 [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper) 的 main 分支：根目录放两端 marketplace，`plugins/cdphelper/` 放编译后的插件和生产依赖，`source/ModCDP` 子模块追溯源码。本 ModCDP 仓库只维护源码、构建和测试，不能把源码根目录当作可安装插件市场。分发仓库和 Release 尚待发布及完整验收，当前不能宣称用户已可从远端安装。
+唯一插件市场入口为 [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper) 的 main 分支。本 ModCDP 仓库维护源码、构建和测试，并通过根目录 `cdpHelper/` Git 子模块引入分发仓库；关联只有这一方向，cdpHelper 不再引入 ModCDP 或保存源码子模块。分发仓库根目录放 `.agents/plugins/marketplace.json` 和 `.claude-plugin/marketplace.json`，`plugins/cdphelper/` 放编译后的插件和生产依赖。ModCDP 根目录不能作为插件市场。分发仓库和 Release 尚待发布及完整验收，当前不能宣称用户已可从远端安装。
+
+维护者可在当前检出的 `cdpHelper/` 下查看固定版本的市场和产物。远端具备所锁定提交后，新检出可执行 `git submodule update --init -- cdpHelper`；插件用户直接使用 cdpHelper，无需克隆源码仓库。维护顺序为：先提交干净源码并构建，再将已核验产物提交到 cdpHelper，最后更新 ModCDP 的子模块指针。产物元数据记录实际构建源码提交，它可以早于父仓后续的指针提交，不为使两者 SHA 相等而循环重建。
 
 用户只需 Node ≥22 和已安装的雪诺，无需 npm/pnpm install、本地构建或下载 Chromium。扩展由用户自行下载独立 Release ZIP，解压后在每个目标 profile 手动加载其中含 `manifest.json` 的 `extension/` 子目录（不是 ZIP 根目录）；计划附件为 tag `v0.1.1` 下的 `cdphelper-extension-v0.1.1.zip`，目前尚未发布。插件不接收扩展目录、不下载或复制扩展、不改写公共扩展目录；每个 profile 的身份和连接配置存在扩展自己的 storage 中。
 
