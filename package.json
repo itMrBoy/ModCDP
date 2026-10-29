@@ -173,6 +173,7 @@
     "test:launchers": "vitest run js/test/test.LocalBrowserLauncher.ts js/test/test.RemoteBrowserLauncher.ts js/test/test.BBBrowserLauncher.ts",
     "prepare": "pnpm run build",
     "build:plugin": "node js/scripts/build-plugin.mjs",
+    "deliver:plugin": "node js/scripts/deliver-plugin.mjs",
     "test:plugin": "node --test plugin/test/*.test.mjs"
   },
   "dependencies": {

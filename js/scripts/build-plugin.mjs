@@ -44,7 +44,7 @@ execFileSync(process.execPath, ["js/scripts/build-extension-assets.mjs", "--cdph
   stdio: "inherit",
   windowsHide: true,
 });
-await fs.cp(path.join(root, "skills/cdphelper"), path.join(plugin, "skills/cdphelper"), {
+await fs.cp(path.join(root, "plugin/skills/cdphelper"), path.join(plugin, "skills/cdphelper"), {
   recursive: true,
   filter: (file) => !file.split(path.sep).join("/").endsWith("scripts/run.mjs"),
 });

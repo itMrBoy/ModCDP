@@ -34,12 +34,12 @@ You can send `Mod.*`, `Custom.*`, etc. through standard Playwright/Puppeteer/oth
 
 The JavaScript SDK, browser extension, and cdpHelper plugin share the browser-side implementation.
 
-| Directory              | Responsibility                                                                                          | Use it when                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `js/`                  | TypeScript/JavaScript client, Node proxy/CLI, browser-side server implementation, and development tools | Running the current proxy, using the JS SDK, or building the extension |
-| `extension/`           | Shared browser extension entry point and static pages; reuses server logic from `js/`                   | Installing the bridge in the controlled browser                        |
-| `plugin/`              | Shared local MCP runtime and launcher                                                                   | Operating Snow Browser through Codex or Claude Code                    |
-| `skills/cdphelper/` | Shared skill source                                                                                     | Browser selection, operation, and cleanup instructions for both hosts  |
+| Directory                  | Responsibility                                                                                          | Use it when                                                            |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `js/`                      | TypeScript/JavaScript client, Node proxy/CLI, browser-side server implementation, and development tools | Running the current proxy, using the JS SDK, or building the extension |
+| `extension/`               | Shared browser extension entry point and static pages; reuses server logic from `js/`                   | Installing the bridge in the controlled browser                        |
+| `plugin/`                  | Shared local MCP runtime and launcher                                                                   | Operating Snow Browser through Codex or Claude Code                    |
+| `plugin/skills/cdphelper/` | Shared skill source                                                                                     | Browser selection, operation, and cleanup instructions for both hosts  |
 
 Extension builds write only to `dist/`. The standalone Node proxy remains available alongside the plugin.
 
@@ -70,13 +70,15 @@ The plugin distribution entry is [itMrBoy/cdpHelper](https://github.com/itMrBoy/
 
 Maintainers can inspect the pinned marketplace locally under `cdpHelper/`. After the pinned distribution commit is available remotely, initialize a fresh checkout with `git submodule update --init -- cdpHelper`; plugin users install directly from cdpHelper and do not need this source checkout. Build a clean source commit first, commit its verified artifacts in cdpHelper, then update the parent gitlink. Artifact metadata records the source build commit, which may precede the parent's later gitlink update; do not rebuild just to make those commit IDs equal.
 
+ModCDP owns every release input, including `plugin/skills/cdphelper/`, the runtime, and manifest generation. Generated files in cdpHelper must not be edited manually. `pnpm run build:plugin` creates a complete local candidate without requiring the submodule. To deliver from a clean source commit into an initialized, clean submodule, run `pnpm run deliver:plugin`. It builds and validates a release candidate, backs up the managed files, and updates only `.agents/plugins/marketplace.json`, `.claude-plugin/marketplace.json`, and `plugins/cdphelper/`; failures restore the managed files. The command preserves the child README and Git data, reports provenance and file changes, and does not commit or push. The extension ZIP remains a separate Release asset.
+
 Users need Node ≥22 and Snow Browser; no npm/pnpm install, local build, or Chromium download is required. The browser extension is a separate Release asset, planned as `cdphelper-extension-v0.1.1.zip` under tag `v0.1.1`; it is not published yet. Users download and unpack it, then manually load the `extension/` subdirectory containing `manifest.json` in each target profile; the ZIP root is not loadable. The plugin does not accept extension directories, download/copy extension resources, or write connection configuration into a shared extension folder. Profile identity lives in extension storage.
 
 Production runtime files and dependencies travel as the checked `runtime.pack.gz` build artifact. The launcher uses Node to unpack verified files into the user's local runtime cache, without npm or network access. Neither repository tracks an expanded `node_modules/` directory; dependency license files remain inside the runtime package.
 
 Each session first calls `browser_status`, displays the registered instances with names, short IDs and states, and asks a single question offering those instances plus a new isolated Snow instance. Do not ask a generic mode question before listing the inventory. Ordinary profiles register through `127.0.0.1:29393/bridge`. For reuse, `browser_status` shows an inventory with short numbers; after the user chooses, the skill passes that instance's UUID to `browser_select({mode:"reuse", instance_id:"<UUID>"})`. Isolated mode uses `browser_select({mode:"isolated"})` to request a separate profile and associate the extension using a one-time startup URL. The URL proves the requested launch, not that Snow kept a separate profile: Snow may exit the new process or open the URL in an existing window. Before accepting an owned connection and before each owned page operation, the broker verifies a live process with the exact owned profile and executable; failure detaches the connection and sends no page operation. This verification currently exists only on Windows. Other platforms fail closed for isolated mode; reuse is unaffected. Real Snow isolated-mode acceptance is not complete. Both modes use Playwright through the bridge; Computer Use may only launch Snow.
 
-Different tabs can run concurrently, with one owner per tab. Disconnects invalidate old references: users explicitly select again before tabs are rediscovered and bound, without automatic rebind or side-effect replay. Before leaving an isolated instance, ask whether to close and clean its profile; absent consent, retain it. Reused browsers and their tabs remain open. See [installation and connection](skills/cdphelper/references/setup.md). Plugin-format validation and runtime tests do not establish upstream redistribution authorization.
+Different tabs can run concurrently, with one owner per tab. Disconnects invalidate old references: users explicitly select again before tabs are rediscovered and bound, without automatic rebind or side-effect replay. Before leaving an isolated instance, ask whether to close and clean its profile; absent consent, retain it. Reused browsers and their tabs remain open. See [installation and connection](plugin/skills/cdphelper/references/setup.md). Plugin-format validation and runtime tests do not establish upstream redistribution authorization.
 
 ## Use the JS SDK
 
@@ -318,7 +320,7 @@ js/                       TypeScript client/server/proxy package
   examples/
   test/
 plugin/                   Local MCP runtime, launcher, and acceptance tests
-skills/cdphelper/      Shared Codex / Claude Code skill source
+plugin/skills/cdphelper/      Shared Codex / Claude Code skill source
 dist/                     Built JS, extension, ZIP, and plugin-marketplace artifacts
 ```
 
