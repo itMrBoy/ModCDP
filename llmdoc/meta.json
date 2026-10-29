@@ -29,7 +29,7 @@
     "protocol/session-routing.mdx": {
       "validatedRevision": "d5101759ee90e0fb4f41b3195dd6f65d96ae8ccb"
     },
-    "connection/snow-plugin-runtime.mdx": {
+    "connection/cdphelper-plugin-runtime.mdx": {
       "validatedRevision": "d5101759ee90e0fb4f41b3195dd6f65d96ae8ccb"
     }
   },

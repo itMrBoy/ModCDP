@@ -1,5 +1,7 @@
 ---
-description: Codex 与 Claude Code 雪诺插件的本地 Broker、多会话独占 tab、reuse/isolated 显式选择、扩展 bridge 与断线保留及确认清理边界。
+description: >-
+  Codex 与 Claude Code cdpHelper 插件的本地 Broker、多会话独占 tab、reuse/isolated 显式选择、扩展 bridge
+  与断线保留及确认清理边界。
 kind: architecture
 code:
   paths:
@@ -10,7 +12,7 @@ code:
     - plugin/src/bridge.mjs
     - plugin/src/isolated.mjs
     - plugin/src/tools.mjs
-    - skills/snow-browser/SKILL.md
+    - skills/cdphelper/SKILL.md
 relations:
   requires:
     - browser/cdp-endpoint.mdx
@@ -18,16 +20,19 @@ relations:
     - connection/browser-lifecycle.mdx
     - development/build-and-validation.mdx
 ---
+# cdpHelper 插件的会话与资源权属
 
-# 雪诺插件的会话与资源权属
-
-Codex 与 Claude Code 共用本地 MCP 工具及 Playwright。技能负责用户选择和使用流程；本页维护实例登记、会话及 tab 权属、断连与清理边界。源码仓不充当安装产物，分发及源码追溯由 cdpHelper main 的 marketplace、插件目录与 source/ModCDP 子模块承担。
+Codex 与 Claude Code 共用本地 MCP 工具及 Playwright。技能负责用户选择和使用流程；本页维护实例登记、会话及 tab 权属、断连与清理边界。源码仓不充当安装产物；用户安装 cdpHelper main 的 marketplace 与完整插件。ModCDP 从根目录 cdpHelper 子模块锁定分发提交，分发仓不引入源码；产物通过构建元数据记录源码提交，具体交付顺序由构建指南维护。
 
 ## 宿主入口与命名空间
 
-Codex 兼容清单显式声明技能与专用 MCP 配置；portable 根清单的 OpenAI extension 保持对应配置。Codex 的入口和 cwd 按已安装插件根目录解析，不能假定其会展开 Claude 的插件变量。Claude Code 使用自己的 .mcp.json 配置。三份 MCP 配置统一使用 snow_browser 作为 server key。
+Codex 兼容清单显式声明技能与专用 MCP 配置；portable 根清单的 OpenAI extension 保持对应配置。Codex 的入口和 cwd 按已安装插件根目录解析，不能假定其会展开 Claude 的插件变量。Claude Code 使用自己的 .mcp.json 配置。三份 MCP 配置统一使用 cdphelper 作为 server key。
 
-宿主验收必须分别检查技能发现与 MCP 连接；Codex 可能按插件命名空间返回 snow-browser:snow-browser，用户级安装为 scope:user，不能只按未限定技能名精确匹配。SDK 直接启动运行时的成功结果不能代替真实宿主对清单、路径和变量的解析验收。
+宿主验收必须分别检查技能发现与 MCP 连接；Codex 可能按插件命名空间返回 cdphelper:cdphelper，用户级安装为 scope:user，不能只按未限定技能名精确匹配。SDK 直接启动运行时的成功结果不能代替真实宿主对清单、路径和变量的解析验收。
+
+标识统一使用 cdphelper，展示名称为 cdpHelper；技能正文仍可保留当前内部雪诺浏览器操作说明。插件命名不意味着浏览器兼容范围扩大，实际雪诺隔离仍受下文进程归属核验和真实验收限制。
+
+运行数据写入 ~/.cdphelper；旧 ~/.snow-browser 原样保留，不自动迁移浏览器实例或清理 profile。新服务不根据旧目录记录取得浏览器控制权。
 
 ## 一个后台服务，多个登记实例
 

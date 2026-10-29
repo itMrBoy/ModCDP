@@ -1,5 +1,7 @@
 ---
-description: JS SDK 与扩展构建、ReverseWS 开关、cdpHelper main 插件市场及独立 Release 扩展分发边界；区分自动检查与真实宿主、雪诺验收。
+description: >-
+  JS SDK 与扩展构建、ReverseWS 开关、ModCDP 引入 cdpHelper 子模块、main 插件市场及独立 Release
+  扩展分发边界；区分自动检查与真实宿主、雪诺验收。
 kind: guide
 code:
   paths:
@@ -9,6 +11,12 @@ code:
     - js/scripts/build-extension-assets.mjs
     - js/scripts/build-plugin.mjs
     - plugin/version.json
+    - plugin/release/README.md
+    - plugin/release/README.zh-CN.md
+    - skills/cdphelper/references/setup.md
+    - README.md
+    - README.zh-CN.md
+    - plugin/test/runtime.test.mjs
     - .pre-commit-config.yaml
     - .github/workflows/test.yml
     - .github/workflows/lint.yml
@@ -17,9 +25,8 @@ relations:
     - development/sdk-parity.mdx
     - browser/worker-lifecycle.mdx
     - browser/cdp-endpoint.mdx
-    - connection/snow-plugin-runtime.mdx
+    - connection/cdphelper-plugin-runtime.mdx
 ---
-
 # 构建产物与验收边界
 
 仓库维护 JS SDK、浏览器扩展与 Codex/Claude Code 插件。命令和版本以 manifest、构建脚本及 README 为准；这里维护构建顺序、产物权属和验收边界。Python/Go SDK 及其 ZIP 副本、专属检查不再属于构建链。
@@ -38,10 +45,18 @@ ReverseWS 与 NATS 是资源编译时开关，普通 `build` 会关闭。已有�
 
 插件使用的扩展以 ReverseWS 构建；普通构建不能替代该步骤。入口校验随包文件并运行完整产物，不通过下载或缓存复制修补依赖；客户端只使用用户提供的 Node ≥ 22，不自动切换 Node 或修改 PATH。依赖、版本或入口变化时应重建完整插件，不能单独替换已校验文件。profile 的连接身份位于扩展 storage，公共扩展目录不是实例配置写入点。
 
-唯一插件分发入口为 cdpHelper 的 main 分支：仓库根维护两端 marketplace，`plugins/snow-browser` 放完整产物，`source/ModCDP` 子模块指向可追溯源码提交。ModCDP 源仓只维护源码、构建和测试，扩展 ZIP 独立放 cdpHelper Release，不使用 plugin-dist 分支。更新 main 产物、子模块指针和 Release 附件是不同交付步骤；构建成功不等于它们已发布或验收。源码提交与构建来源、插件/扩展版本及校验值须一致，不能只提交不可追溯的产物。仓库不通过 npm 分发本插件。
+唯一插件分发入口为 cdpHelper 的 main 分支：该仓根维护两端 marketplace，`plugins/cdphelper` 放完整产物，不引入或复制 ModCDP 源码。ModCDP 维护源码、构建和测试，并从根目录 `cdpHelper/` 子模块锁定分发仓提交；初始化后可在当前源码工作区看到市场与插件。关联方向只能是 ModCDP → cdpHelper，不能在分发仓反向建立 `source/ModCDP` 子模块或形成递归引用。扩展 ZIP 独立放 cdpHelper Release，不进入插件目录或插件 Git 树，不使用 plugin-dist 分支。仓库不通过 npm 分发本插件。
+
+交付顺序为：提交干净源码 A，从 A 构建并记录真实 source_commit；在 cdpHelper 核验、提交产物 B；最后由 ModCDP 的后续提交 C 将子模块锁定 B。C 只更新分发关联时，产物来源仍是 A，不能为了让来源等于父仓最新 HEAD 反复重建而制造循环引用。更新产物、父仓指针与 Release 附件是不同交付步骤；构建成功不等于它们已发布或验收。对外分发前，来源 A 与分发 B 都须能从各自配置的远端取得，本地对象可用不证明远端可用。
+
+父仓的格式化、检查与构建工具不得递归改写子模块内已校验的产物或其生产依赖；子模块内容由分发仓独立维护、提交和核验。不能用修改父仓忽略规则来替代检查子模块本身的 Git 状态。
+
+构建器从 skills/cdphelper 生成插件技能，以 --cdphelper-plugin 编译配套扩展；扩展 ZIP 命名为 cdphelper-extension-v版本号.zip，构建来源记录在扩展内的 cdphelper-bridge.json。版本与摘要以构建元数据为准。改名不更换扩展公钥或 ID，也不改变 bridge 协议；插件和配套扩展仍须按构建版本匹配。
 
 ## 验证到所需责任边界
 
-静态检查、自动化协议/插件测试、真实宿主加载、独立测试浏览器和真实雪诺是不同验收范围。端口可访问只证明入口存在；页面操作还须越过扩展登记、调试权限和目标会话边界。reuse 与 isolated 均须按所选 profile 完成真实页面验收，不能以其中一种成功替代另一种。旧的专属目录/动态端口测试成功不能直接证明新的统一登记契约通过；SDK 直连也不能证明宿主解析清单正确。子模块可递归拉取、指针对应源码、main 市场安装和 Release 附件完整性同样须分别验收，不提前宣称通过。
+静态检查、自动化协议/插件测试、真实宿主加载、独立测试浏览器和真实雪诺是不同验收范围。端口可访问只证明入口存在；页面操作还须越过扩展登记、调试权限和目标会话边界。reuse 与 isolated 均须按所选 profile 完成真实页面验收，不能以其中一种成功替代另一种。旧的专属目录/动态端口测试成功不能直接证明新的统一登记契约通过；SDK 直连也不能证明宿主解析清单正确。父仓子模块的 URL、gitlink 与实际检出一致，分发仓没有反向源码子模块，产物来源准确，main 市场安装和 Release 附件完整性，均须分别验收，不提前宣称通过。
 
 完整测试可能依赖外部服务和固定资源；本地执行应避免端口、浏览器和前端连接冲突。保留正常 hooks；未安装 hook 时明确实际执行的手动检查。报告分别说明构建、自动回归、真实浏览器操作及尚未满足的外部前提。
+
+用户明确要求替换全局插件时，先备份相关注册、市场来源及工具审批设置，再用独立宿主配置安装和校验候选，之后通过宿主管理命令替换用户级插件。Codex 的工具审批需迁移到新插件和 MCP 命名空间，其他插件配置及活动浏览器不受清理授权。安装缓存摘要、技能加载和 MCP 连通要分别核验；不手工覆盖缓存，也不以临时宿主测试代替真实用户级安装结果。

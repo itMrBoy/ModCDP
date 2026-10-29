@@ -37,4 +37,4 @@ Router 发现或附加目标后记录 session；Runtime 与 Page 事件补充上
 
 main world 与 isolated world 是明确选择；选择命名 world 必须保持 frame/session 匹配。DOM root、Shadow DOM 或 iframe 的关系来自当前浏览器图，不能把采样结果跨导航当作可复用定位身份。
 
-修改图维护时应覆盖相关事件与取消语义；扩展 CDP endpoint 的合成前端会话是另一个所有权模型，由 `browser/cdp-endpoint.mdx` 维护，不能混入本 Router 的真实 browser graph。插件会话和 tab 占用则由 `connection/snow-plugin-runtime.mdx` 维护，不是 CDP session 的替代身份。
+修改图维护时应覆盖相关事件与取消语义；扩展 CDP endpoint 的合成前端会话是另一个所有权模型，由 `browser/cdp-endpoint.mdx` 维护，不能混入本 Router 的真实 browser graph。插件会话和 tab 占用则由 `connection/cdphelper-plugin-runtime.mdx` 维护，不是 CDP session 的替代身份。
