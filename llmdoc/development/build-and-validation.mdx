@@ -41,7 +41,9 @@ ReverseWS 与 NATS 是资源编译时开关，普通 `build` 会关闭。已有�
 
 ## 插件是完整可搬运的产物
 
-插件构建生成 `dist/plugin-marketplace`，提供 Codex 与 Claude Code 的 marketplace/plugin 配置、技能、入口和生产运行依赖；浏览器扩展为独立 Release ZIP，由用户自行下载并手动加载。构建端解析依赖闭包并物化文件，客户端不依赖源码 checkout、pnpm 符号链接或安装脚本，也不下载 Playwright 浏览器。插件不能接收扩展目录或下载、复制扩展来配置实例。
+插件构建生成 `dist/plugin-marketplace`，提供 Codex 与 Claude Code 的 marketplace/plugin 配置、技能、入口和压缩运行时；浏览器扩展为独立 Release ZIP，由用户自行下载并手动加载。构建端解析固定生产依赖闭包，保留依赖许可证，将运行时与依赖打入 runtime.pack.gz，并清除候选中的展开目录；客户端不依赖源码 checkout、pnpm 符号链接或安装脚本，也不下载 Playwright 浏览器。插件不能接收扩展目录或下载、复制扩展来配置实例。
+
+Git 不跟踪展开的 node_modules，检查范围同时覆盖候选工作树、暂存区和准备推送的分发历史；只删除最新树中的依赖目录，不能证明旧提交不会随推送上传。发布前须确认可达历史满足同一约束，保留的本地备份历史不能进入待发布分支的祖先链。压缩运行时中保留完整生产依赖及许可证，不将压缩交付误写为无需依赖或用户需要 npm install。
 
 插件使用的扩展以 ReverseWS 构建；普通构建不能替代该步骤。入口校验随包文件并运行完整产物，不通过下载或缓存复制修补依赖；客户端只使用用户提供的 Node ≥ 22，不自动切换 Node 或修改 PATH。依赖、版本或入口变化时应重建完整插件，不能单独替换已校验文件。profile 的连接身份位于扩展 storage，公共扩展目录不是实例配置写入点。
 
