@@ -8,7 +8,6 @@ jobs:
     timeout-minutes: 30
     env:
       CI: "true"
-      CHROME_PATH: /usr/bin/chromium
       BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +17,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Install the matching Chromium test fixture
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          browser_path="$(node --input-type=module -e "import {chromium} from 'playwright'; process.stdout.write(chromium.executablePath())")"
+          echo "SNOW_TEST_BROWSER=$browser_path" >> "$GITHUB_ENV"
+          echo "CHROME_PATH=$browser_path" >> "$GITHUB_ENV"
       - run: pnpm run build
       - run: pnpm run build:plugin
       - run: pnpm run test:plugin
