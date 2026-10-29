@@ -1,6 +1,6 @@
 ---
 description: >-
-  Codex 与 Claude Code cdpHelper 插件的本地 Broker、先列出现有实例再选择或启动隔离实例、多会话独占 tab、扩展 bridge
+  Codex 与 Claude Code cdpHelper 插件的本地 Broker、实例显示编号与明确选择、多会话独占 tab、扩展 bridge
   与断线保留及确认清理边界。
 kind: architecture
 code:
@@ -12,6 +12,7 @@ code:
     - plugin/src/bridge.mjs
     - plugin/test/bridge.test.mjs
     - plugin/test/browser.test.mjs
+    - plugin/test/instance-numbers.test.mjs
     - plugin/src/isolated.mjs
     - plugin/src/tools.mjs
     - plugin/skills/cdphelper/SKILL.md
@@ -20,9 +21,11 @@ relations:
   requires:
     - browser/cdp-endpoint.mdx
   related:
+    - browser/worker-lifecycle.mdx
     - connection/browser-lifecycle.mdx
     - development/build-and-validation.mdx
 ---
+
 # cdpHelper 插件的会话与资源权属
 
 Codex 与 Claude Code 共用本地 MCP 工具及 Playwright。技能负责用户选择和使用流程；本页维护实例登记、会话及 tab 权属、断连与清理边界。源码仓不充当安装产物；用户安装 cdpHelper main 的 marketplace 与完整插件。ModCDP 从根目录 cdpHelper 子模块锁定分发提交，分发仓不引入源码；产物通过构建元数据记录源码提交，具体交付顺序由构建指南维护。
@@ -51,7 +54,11 @@ Broker 为所选实例持有唯一 Playwright 连接，多会话共享该连接�
 
 ## 每会话明确选择实例
 
-首次浏览器操作必须先 browser_status 列出 inventory 的名称、短编号及状态，再在同一问题提供已有实例与新开隔离选项，不能先泛问 reuse/isolated 再查询清单。未选择时页面工具拒绝操作，不设置隐式默认或失败 fallback。短编号映射到当前连接的完整 instance_id UUID，不能要求用户查找 UUID，也不能用唯一一个在线实例替代用户的选择。
+首次浏览器操作必须先 browser_status 列出 inventory 的名称、display_number 及状态，再在同一问题提供已有实例与新开隔离选项，不能先泛问 reuse/isolated 再查询清单。未选择时页面工具拒绝操作，不设置隐式默认或失败 fallback。显示编号映射到当次 inventory 中完整的 instance_id UUID，不能把编号作为路由 ID、要求用户查找 UUID，或用唯一一个在线实例替代用户的选择；识别实例不额外读取页面标题或网址。
+
+Broker 为每个成功登记的连接分配 display_number，后台生命周期内从 1 递增，断连不复用、重连换号，后台重启后重新计数。因此编号不是持久身份，也不改变旧引用失效和重连后明确选择的规则。registration 与 browser_status instances 返回同一编号；默认名称为“浏览器 N”，自定义名称可以重复，由编号区分。同一 profile 的多个窗口共用其扩展连接及编号。扩展登记后即可显示同号徽标和设置页，用户固定到工具栏后可对照徽标，未固定时查看设置页；显示不需要先选择或操作页面。
+
+编号作为协议 2 登记消息的可选 display_number 扩展，解码继续接受未含编号的旧消息；不新增 MCP 工具，也不把显示信息当作身份或隔离核验依据。扩展显示状态与失败处理由 worker 生命周期所有者维护。
 
 reuse 选择已登记普通 profile，沿用其登录状态和 cookies；同一 profile 不隔离账号。isolated 请求启动实际雪诺的独立 profile，通过一次性启动关联 URL 将对应扩展首次登记与本次创建关联，不复制现有 profile，也不依赖原生 CDP。找不到雪诺、扩展未安装或关联失败时明确报告，不切换其他 Chromium 或复用实例。
 
