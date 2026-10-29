@@ -242,6 +242,31 @@ test(
           }),
         );
         console.error(`Profile ${index + 1} extension diagnostics: ${JSON.stringify(diagnostics)}`);
+        try {
+          const manager = await context.newPage();
+          await manager.goto("chrome://extensions");
+          const extensions = await manager.evaluate(
+            () =>
+              new Promise((resolve) => {
+                chrome.developerPrivate.getExtensionsInfo(
+                  { includeDisabled: true, includeTerminated: true },
+                  (entries) =>
+                    resolve(
+                      entries.map(({ id, state, disableReasons, manifestErrors, runtimeErrors }) => ({
+                        id,
+                        state,
+                        disableReasons,
+                        manifestErrors,
+                        runtimeErrors,
+                      })),
+                    ),
+                );
+              }),
+          );
+          console.error(`Profile ${index + 1} extension manager: ${JSON.stringify(extensions)}`);
+        } catch (diagnosticError) {
+          console.error(`Profile ${index + 1} extension manager unavailable: ${String(diagnosticError)}`);
+        }
       }
       throw error;
     } finally {
