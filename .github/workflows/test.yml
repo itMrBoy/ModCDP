@@ -26,7 +26,21 @@ jobs:
       - run: pnpm run build
       - run: pnpm run build:plugin
       - run: pnpm run test:plugin
-      - run: pnpm exec vitest run --fileParallelism=false --maxWorkers=1
+      - name: Run local SDK tests
+        run: >-
+          pnpm exec vitest run --fileParallelism=false --maxWorkers=1
+          --exclude js/test/test.BBBrowserLauncher.ts
+          --exclude js/test/test.BBExtensionInjector.ts
+      - name: Run live Browserbase integration tests
+        if: env.BROWSERBASE_API_KEY != ''
+        run: >-
+          pnpm exec vitest run js/test/test.BBBrowserLauncher.ts js/test/test.BBExtensionInjector.ts
+          --fileParallelism=false --maxWorkers=1
+      - name: Report unavailable Browserbase integration checks
+        if: env.BROWSERBASE_API_KEY == ''
+        run: |
+          echo "::notice::Live Browserbase checks were not run because BROWSERBASE_API_KEY is not configured."
+          echo "Browserbase cloud integration: not run (BROWSERBASE_API_KEY is not configured). Local SDK and plugin checks remain required." >> "$GITHUB_STEP_SUMMARY"
       - name: Run demos serially
         run: |
           for upstream in ws pipe; do
