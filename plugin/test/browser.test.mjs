@@ -219,6 +219,30 @@ test(
           context.pages().some((p) => p.url() === url),
           "broker disconnect preserves existing pages",
         );
+    } catch (error) {
+      for (const [index, context] of contexts.entries()) {
+        const workers = context.serviceWorkers();
+        const diagnostics = await Promise.all(
+          workers.map(async (worker) => {
+            try {
+              return await Promise.race([
+                worker.evaluate(async () => ({
+                  url: self.location.href,
+                  browser: navigator.userAgent,
+                  extension: { id: chrome.runtime.id, version: chrome.runtime.getManifest().version },
+                  configuration: await chrome.storage.local.get(["snowBridgeUrl", "snowInstanceName"]),
+                  state: await chrome.storage.session.get("snowBridgeState"),
+                })),
+                pause(2000).then(() => ({ url: worker.url(), unavailable: "worker did not respond" })),
+              ]);
+            } catch (diagnosticError) {
+              return { url: worker.url(), unavailable: String(diagnosticError) };
+            }
+          }),
+        );
+        console.error(`Profile ${index + 1} extension diagnostics: ${JSON.stringify(diagnostics)}`);
+      }
+      throw error;
     } finally {
       await broker.close();
       await Promise.all(contexts.map((c) => c.close()));
