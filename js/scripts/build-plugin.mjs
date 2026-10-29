@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { build } from "esbuild";
 import { parseArgs } from "node:util";
+import { gzipSync } from "node:zlib";
 
 const root = process.cwd();
 const { values } = parseArgs({
@@ -229,12 +230,23 @@ const buildMetadata = {
 };
 const runtimeDigest = hash(JSON.stringify({ files: await inventory(runtime), metadata: buildMetadata }));
 await writeJSON(path.join(runtime, "build.json"), { ...buildMetadata, digest: runtimeDigest });
+const runtimeFiles = await inventory(runtime);
+const payload = {};
+const runtimeModes = {};
+for (const file of Object.keys(runtimeFiles)) {
+  payload[file] = (await fs.readFile(path.join(runtime, file))).toString("base64");
+  runtimeModes[file] = (await fs.stat(path.join(runtime, file))).mode & 0o777;
+}
+await fs.writeFile(path.join(plugin, "runtime.pack.gz"), gzipSync(JSON.stringify(payload), { level: 9 }));
+await removeDist(runtime, { recursive: true });
 const files = await inventory(plugin);
 await writeJSON(path.join(plugin, "artifact.json"), {
   version,
   digest: runtimeDigest,
   source_commit: commit,
   source_dirty: sourceDirty,
+  runtime_files: runtimeFiles,
+  runtime_modes: runtimeModes,
   files,
 });
 

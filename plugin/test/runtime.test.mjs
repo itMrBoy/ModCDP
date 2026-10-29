@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -113,8 +114,14 @@ test(
       assert.deepEqual(Object.keys(wiring.mcpServers), ["cdphelper"]);
     }
     assert.match(await readFile(path.join(source, "skills/cdphelper/SKILL.md"), "utf8"), /^name: cdphelper$/m);
-    assert.ok(Object.keys(inventory.files).some((f) => f.includes("playwright-core/package.json")));
-    assert.ok(Object.keys(inventory.files).some((f) => f.includes("@modelcontextprotocol/sdk/package.json")));
+    assert.ok(Object.keys(inventory.runtime_files).some((f) => f.includes("playwright-core/package.json")));
+    assert.ok(Object.keys(inventory.runtime_files).some((f) => f.includes("@modelcontextprotocol/sdk/package.json")));
+    const packed = JSON.parse(gunzipSync(await readFile(path.join(source, "runtime.pack.gz"))).toString("utf8"));
+    assert.deepEqual(Object.keys(packed), Object.keys(inventory.runtime_files));
+    for (const [file, expected] of Object.entries(inventory.runtime_files)) {
+      assert.ok(!/\.(?:tsx?|map)$/.test(file), file);
+      assert.equal(createHash("sha256").update(Buffer.from(packed[file], "base64")).digest("hex"), expected, file);
+    }
     for (const file of Object.keys(inventory.files)) {
       assert.notEqual(
         file,
@@ -122,16 +129,32 @@ test(
         "legacy source-checkout runner must not ship in plugins",
       );
       assert.ok(!/\.(?:tsx?|map)$/.test(file), file);
+      assert.ok(!file.split("/").includes("node_modules"), "expanded dependencies must not enter the plugin Git tree");
       assert.ok(!/(?:^|\/)extension\/|bridge-config\.json$|\.zip$|(?:^|\/)manifest\.json$/.test(file), file);
       assert.equal((await lstat(path.join(source, file))).isSymbolicLink(), false, file);
     }
     const scratch = await mkdtemp(path.join(tmpdir(), "cdphelper-plugin-tamper-"));
     try {
       await cp(source, scratch, { recursive: true });
-      await writeFile(path.join(scratch, "runtime/cli.mjs"), "// tampered\n");
+      await writeFile(path.join(scratch, "runtime.pack.gz"), "// tampered\n");
       assert.throws(
         () => execFileSync(process.execPath, [path.join(scratch, "launch.mjs"), "--check"], { stdio: "pipe" }),
         /checksum mismatch/,
+      );
+      // Even a malformed archive with matching outer checksums cannot escape the runtime cache.
+      const malicious = { "../escaped.txt": Buffer.from("escaped").toString("base64") };
+      const archive = gzipSync(JSON.stringify(malicious));
+      await writeFile(path.join(scratch, "runtime.pack.gz"), archive);
+      const forged = structuredClone(inventory);
+      forged.files["runtime.pack.gz"] = createHash("sha256").update(archive).digest("hex");
+      forged.runtime_files = { "../escaped.txt": createHash("sha256").update("escaped").digest("hex") };
+      await writeFile(path.join(scratch, "artifact.json"), JSON.stringify(forged));
+      assert.throws(
+        () =>
+          execFileSync(process.execPath, [path.join(scratch, "launch.mjs"), "--home", path.join(scratch, "home")], {
+            stdio: "pipe",
+          }),
+        /Invalid artifact path/,
       );
     } finally {
       await rm(scratch, { recursive: true, force: true });
@@ -149,18 +172,21 @@ test(
     let old, upgraded;
     try {
       await cp(source, next, { recursive: true });
-      const buildFile = path.join(next, "runtime/build.json");
-      const build = JSON.parse(await readFile(buildFile, "utf8"));
+      const packFile = path.join(next, "runtime.pack.gz");
+      const packed = JSON.parse(gunzipSync(await readFile(packFile)).toString("utf8"));
+      const build = JSON.parse(Buffer.from(packed["build.json"], "base64").toString("utf8"));
       build.version = "0.1.2";
       build.digest = createHash("sha256").update("test runtime upgrade").digest("hex");
-      await writeFile(buildFile, JSON.stringify(build));
+      const buildBytes = Buffer.from(JSON.stringify(build));
+      packed["build.json"] = buildBytes.toString("base64");
+      const archive = gzipSync(JSON.stringify(packed));
+      await writeFile(packFile, archive);
       const artifactFile = path.join(next, "artifact.json");
       const artifact = JSON.parse(await readFile(artifactFile, "utf8"));
       artifact.version = build.version;
       artifact.digest = build.digest;
-      artifact.files["runtime/build.json"] = createHash("sha256")
-        .update(await readFile(buildFile))
-        .digest("hex");
+      artifact.runtime_files["build.json"] = createHash("sha256").update(buildBytes).digest("hex");
+      artifact.files["runtime.pack.gz"] = createHash("sha256").update(archive).digest("hex");
       await writeFile(artifactFile, JSON.stringify(artifact));
       old = await client(source, home);
       await assert.rejects(client(next, home), /older runtime still has active sessions/);
