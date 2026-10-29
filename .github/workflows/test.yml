@@ -41,6 +41,8 @@ jobs:
         run: |
           echo "::notice::Live Browserbase checks were not run because BROWSERBASE_API_KEY is not configured."
           echo "Browserbase cloud integration: not run (BROWSERBASE_API_KEY is not configured). Local SDK and plugin checks remain required." >> "$GITHUB_STEP_SUMMARY"
+      - name: Build the standalone SDK extension fixture
+        run: pnpm run build:extension-assets -- --enable-reversews
       - name: Run demos serially
         run: |
           for upstream in ws pipe; do
