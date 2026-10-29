@@ -16,7 +16,10 @@ import { ChromeDebuggerCDPAdapter } from "./ChromeDebuggerCDPAdapter.js";
 import { DownstreamTransportSet } from "../transport/DownstreamTransportSet.js";
 import { NativeMessagingDownstreamTransport } from "../transport/NativeMessagingDownstreamTransport.js";
 import { NATSDownstreamTransport } from "../transport/NATSDownstreamTransport.js";
-import { ReverseWSDownstreamTransport } from "../transport/ReverseWSDownstreamTransport.js";
+import {
+  ReverseWSDownstreamTransport,
+  type ReverseWSBridgeOptions,
+} from "../transport/ReverseWSDownstreamTransport.js";
 import { modCDPToJSON } from "../types/toJSON.js";
 import type {
   CdpEventMessage,
@@ -36,6 +39,8 @@ type MiddlewarePhase = "request" | "response" | "event";
 type ModCDPServerStartupOptions = {
   enable_reversews?: boolean;
   enable_nats?: boolean;
+  reversews_endpoint?: string;
+  reversews_bridge?: ReverseWSBridgeOptions;
 };
 
 type ModCDPGlobalScope = typeof globalThis &
@@ -84,6 +89,8 @@ class ModCDPServer {
     this.startup_options = {
       enable_reversews: startup_options.enable_reversews ?? false,
       enable_nats: startup_options.enable_nats ?? false,
+      reversews_endpoint: startup_options.reversews_endpoint,
+      reversews_bridge: startup_options.reversews_bridge,
     };
     config = ModCDPServerConfigSchema.parse(config);
     this.server_browser_token = config.server_browser_token ?? null;
@@ -137,7 +144,13 @@ class ModCDPServer {
     if (this.started_at === null) {
       this.started_at = new Date().toISOString();
       if (this.startup_options.enable_reversews)
-        this.downstream.add(new ReverseWSDownstreamTransport(() => this.cdp_adapter?.reset() ?? Promise.resolve()));
+        this.downstream.add(
+          new ReverseWSDownstreamTransport(
+            () => this.cdp_adapter?.reset() ?? Promise.resolve(),
+            this.startup_options.reversews_endpoint,
+            this.startup_options.reversews_bridge,
+          ),
+        );
       this.downstream.add(new NativeMessagingDownstreamTransport());
       if (this.startup_options.enable_nats) this.downstream.add(new NATSDownstreamTransport());
       this.downstream.mirrorEventsFrom(this.client, {

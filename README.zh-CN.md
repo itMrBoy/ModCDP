@@ -8,41 +8,41 @@ ModCDP 通过浏览器扩展为 CDP 增加自定义命令、事件和中间件�
 
 ## 主要功能
 
-| 能力 | 用途 |
-| --- | --- |
-| `Mod.evaluate` | 在扩展 service worker 中运行表达式，访问 `chrome.*` 和 `cdp` 桥接对象 |
-| `Mod.addCustomCommand` | 注册 `Custom.*` 命令，将常用操作封装为协议调用 |
-| `Mod.addCustomEvent` | 注册自定义事件，通过同一连接订阅和接收 |
-| `Mod.addMiddleware` | 按方法名或通配符拦截请求、响应、事件 |
-| Node 代理 | 向普通 CDP 客户端提供入口，支持常规上游及基于扩展的 ReverseWS 模式 |
-| 多种传输与路由 | 按场景使用 WebSocket、pipe、ReverseWS、Native Messaging、NATS，以及直接 CDP、扩展回环或 `chrome.debugger` 路由 |
+| 能力                   | 用途                                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `Mod.evaluate`         | 在扩展 service worker 中运行表达式，访问 `chrome.*` 和 `cdp` 桥接对象                                          |
+| `Mod.addCustomCommand` | 注册 `Custom.*` 命令，将常用操作封装为协议调用                                                                 |
+| `Mod.addCustomEvent`   | 注册自定义事件，通过同一连接订阅和接收                                                                         |
+| `Mod.addMiddleware`    | 按方法名或通配符拦截请求、响应、事件                                                                           |
+| Node 代理              | 向普通 CDP 客户端提供入口，支持常规上游及基于扩展的 ReverseWS 模式                                             |
+| 多种传输与路由         | 按场景使用 WebSocket、pipe、ReverseWS、Native Messaging、NATS，以及直接 CDP、扩展回环或 `chrome.debugger` 路由 |
 
 不同传输、浏览器和客户端使用的命令会影响兼容性。扩展模式实现了部分浏览器级 CDP 行为，并不等同于浏览器原生 CDP 的全部能力。
 
-## 语言包与目录职责
+## 目录职责
 
-`js/`、`python/`、`go/` 提供不同语言的调用方式，功能覆盖并不完全相同，**不需要把三者同时启动**。使用当前 Node 代理，只需准备 Node、pnpm 和可用的浏览器扩展环境，不要求安装 Go 或 Python。
+项目保留 JavaScript SDK、Node 代理、浏览器扩展，以及 Codex / Claude Code 共用的雪诺插件运行时。
 
-| 目录 | 作用 | 何时使用 |
-| --- | --- | --- |
-| `js/` | TypeScript/JavaScript 客户端，以及 Node 代理、浏览器端服务实现和开发工具 | 启动当前代理、使用 JS SDK 或构建扩展 |
-| `python/` | Python 客户端 SDK、示例和测试 | 从 Python 程序调用 ModCDP |
-| `go/` | Go 客户端 SDK、示例和测试 | 从 Go 程序调用 ModCDP |
-| `extension/` | 各语言客户端共用的浏览器扩展入口与静态页面，服务逻辑复用 `js/` 中的实现 | 加载到受控浏览器中 |
-| `dist/` | 构建后的 JS、可加载扩展及 ZIP 产物 | 运行 Node CLI、安装构建后的扩展 |
+| 目录                       | 作用                                                                     | 何时使用                             |
+| -------------------------- | ------------------------------------------------------------------------ | ------------------------------------ |
+| `js/`                      | TypeScript/JavaScript 客户端，以及 Node 代理、浏览器端服务实现和开发工具 | 启动当前代理、使用 JS SDK 或构建扩展 |
+| `extension/`               | 浏览器扩展入口与静态页面，服务逻辑复用 `js/` 中的实现                    | 加载到受控浏览器中                   |
+| `plugin/`                  | 共用本机 MCP 运行时与启动器                                              | 通过 Codex 或 Claude Code 操作雪诺   |
+| `plugin/skills/cdphelper/` | 两端共用技能源码                                                         | 模式选择、网页操作及退出清理指引     |
+| `dist/`                    | 构建后的 JS、可加载扩展及 ZIP 产物                                       | 运行 Node CLI、安装构建后的扩展      |
 
-即使通过 Python 或 Go 调用，浏览器内运行的仍是共享的 TypeScript/JavaScript 扩展服务。本次已有浏览器适配涉及 `js/` 和共享入口 `extension/src/service_worker.ts`；Go/Python 源码未修改，其中的 `extension.zip` 是构建时同步的共享扩展产物。新增的 Node 代理能力尚未移植为 Go/Python 实现。
+扩展统一输出到 `dist/`，独立 Node 代理与插件入口均可使用。
 
 源码入口：
 
 - [客户端与代理](js/src/)：客户端、代理 CLI、启动器、注入器、传输和路由。
 - [扩展入口](extension/src/service_worker.ts) 与 [静态页面](extension/src/pages/)：加载共享浏览器端服务。
-- [JS 示例](js/examples/)、[Python 示例](python/examples/)、[Go 示例](go/examples/)：各语言调用示例。
+- [JS 示例](js/examples/)：SDK 调用示例。
 - [英文技术说明](README.md)：完整 JS SDK 示例、架构、协议流转图和历史兼容性记录。
 
 ## 依赖与安装
 
-当前 Node 代理和扩展构建的必需依赖：
+以下是源码开发、Node 代理和扩展构建的依赖；插件用户只需 Node ≥22 和已安装的雪诺浏览器，无需安装 pnpm 或执行 npm install。
 
 - **Node ≥ 22**。
 - **pnpm 10.33.2**，与 `package.json` 的 `packageManager` 一致。
@@ -57,24 +57,18 @@ pnpm install --frozen-lockfile
 
 安装会执行现有 `prepare`，自动完成包和扩展构建。Paseo 的 worktree 初始化与 `install` 快捷入口都使用该命令；`package.json` 没有额外的 `install` 生命周期脚本。
 
-仅在使用对应语言 SDK 或示例时准备可选依赖：
-
-| 场景 | 依赖与安装 |
-| --- | --- |
-| Python SDK / 示例 | Python ≥ 3.11；示例使用 `uv`，进入 `python/` 后执行 `uv sync`。依赖见 [pyproject.toml](python/pyproject.toml)，包括 `websocket-client`、`pydantic` 等 |
-| Go SDK / 示例 | Go ≥ 1.25；进入 `go/` 后执行 `go mod download`。依赖见 [go.mod](go/go.mod)，包括 `gobwas/ws` 等 |
-
 ## 构建及产物
 
 ```sh
 pnpm run build
 pnpm run build:package
 pnpm run build:extension-assets
+pnpm run build:plugin
 ```
 
-`build` 依次编译 TypeScript、构建扩展资源、检查 `python/README.md` 是否存在；最后一步不需要 Python 解释器。`build:package` 只编译 JS 包；`build:extension-assets` 只重新打包扩展。
+`build` 依次编译 TypeScript、构建扩展资源。`build:package` 只编译 JS 包；`build:extension-assets` 只重新打包扩展。`build:plugin` 生成包含两端清单、运行时和生产依赖的完整 `dist/plugin-marketplace/`。
 
-主要产物是 `dist/js/`、可直接加载的 `dist/extension/` 和 `dist/extension.zip`。每次扩展构建还会将同一 ZIP 同步到 `python/modcdp/extension.zip`、`go/modcdp/injector/extension.zip`，其中包含本次构建选择的 ReverseWS/NATS 开关。这些文件变化不代表 Go/Python 源码发生适配。
+主要产物是 `dist/js/`、可直接加载的 `dist/extension/` 和 `dist/extension.zip`。扩展不会再同步到其他 SDK 目录。
 
 普通安装和构建默认关闭 ReverseWS、NATS。仅启用 ReverseWS：
 
@@ -87,14 +81,34 @@ NATS 可通过 `--enable-nats` 开启，也可与 `--enable-reversews` 同时传
 
 构建不会重载已安装的扩展，也不会监听源码。普通 `build` 会再次关闭 ReverseWS；若正在使用已有浏览器模式，应重新运行对应启动入口并重载扩展。
 
+## Codex / Claude Code 雪诺浏览器插件
+
+唯一插件市场入口为 [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper) 的 main 分支。本 ModCDP 仓库维护源码、构建和测试，并通过根目录 `cdpHelper/` Git 子模块引入分发仓库；关联只有这一方向，cdpHelper 不再引入 ModCDP 或保存源码子模块。分发仓库根目录放 `.agents/plugins/marketplace.json` 和 `.claude-plugin/marketplace.json`，`plugins/cdphelper/` 放编译后的插件和生产依赖。ModCDP 根目录不能作为插件市场。插件从该市场安装，配套扩展从 cdpHelper Release 下载；浏览器兼容性及隔离模式限制见下文。
+
+维护者可在当前检出的 `cdpHelper/` 下查看固定版本的市场和产物。远端具备所锁定提交后，新检出可执行 `git submodule update --init -- cdpHelper`；插件用户直接使用 cdpHelper，无需克隆源码仓库。维护顺序为：先提交干净源码并构建，再将已核验产物提交到 cdpHelper，最后更新 ModCDP 的子模块指针。产物元数据记录实际构建源码提交，它可以早于父仓后续的指针提交，不为使两者 SHA 相等而循环重建。
+
+全部发布输入只在 ModCDP 维护，包括 `plugin/skills/cdphelper/` 技能、运行时和清单生成逻辑；cdpHelper 中的生成文件不手工修改。`pnpm run build:plugin` 无需初始化子模块即可生成完整本地候选。提交干净源码且 `cdpHelper/` 子模块已初始化、工作区干净后，执行 `pnpm run deliver:plugin`，构建并校验正式候选、备份受管文件后，仅更新 `.agents/plugins/marketplace.json`、`.claude-plugin/marketplace.json` 和 `plugins/cdphelper/`；失败恢复受管文件。该命令保留子仓 README 和 Git 数据，报告来源与文件差异，不自动提交或推送。扩展 ZIP 仍单独用于 Release。
+
+扩展发布 CI 位于 [release-extension.yml](.github/workflows/release-extension.yml)。版本更新 PR 合并到 `main` 后，它锁定父仓所引用的分发提交 B，按插件元数据中的源码提交 A 构建和验证扩展，在 cdpHelper 自动创建 `v<版本>` tag 并正式发布三个附件：扩展 ZIP、`release-manifest.json` 和 `SHA256SUMS`。发布清单引用 B 中的真实插件摘要，不用其他平台重建的插件替换 B。发布说明自动按上一已发布版本到 A 的源码提交生成中文分类列表，附版本、来源及安装说明；首次发布只列出最近相关提交，不宣称覆盖全部历史。
+
+启用前，在 **ModCDP → Settings → Secrets and variables → Actions** 配置 `CDPHELPER_RELEASE_TOKEN`：fine-grained token 仅选择 cdpHelper，授予 **Contents: Read and write**。两仓须先推送源码 A、分发 B 和 `main`，否则无法取得固定提交。后续先更新 `plugin/version.json`、完成源码提交和 `deliver:plugin`、提交并推送子仓产物，再以 merge commit 将父仓指针 PR 合并到 `main`，保留来源 A 的原始 SHA。已发布同版本且候选一致时跳过；候选变化必须升级版本，不能覆盖已发布附件。失败重试可在 Actions 的 **Release cdpHelper extension** 手动运行；只恢复属于同一候选的草稿，发布基线发生变化或已有更高版本时拒绝发布并提示处理。
+
+用户只需 Node ≥22 和已安装的雪诺，无需 npm/pnpm install、本地构建或下载 Chromium。扩展由用户自行下载独立 Release ZIP，解压后在每个目标 profile 手动加载其中含 `manifest.json` 的 `extension/` 子目录（不是 ZIP 根目录）；从 [cdpHelper Releases](https://github.com/itMrBoy/cdpHelper/releases) 的对应 `v<版本号>` tag 获取 `cdphelper-extension-v<版本号>.zip`。插件不接收扩展目录、不下载或复制扩展、不改写公共扩展目录；每个 profile 的身份和连接配置存在扩展自己的 storage 中。
+
+生产运行时和依赖以经过校验的 `runtime.pack.gz` 构建产物交付；启动器使用 Node 将已校验文件释放到用户本机运行时缓存，无需 npm 或网络。两个仓库均不跟踪展开的 `node_modules/` 目录，第三方许可证保留在运行时包内。
+
+每会话首次操作先调用 `browser_status`，展示已有实例的名称、短编号与状态，再在同一个问题中让用户选已有实例或启动新的隔离实例；不先泛问模式。普通 profile 统一通过 `127.0.0.1:29393/bridge` 登记；`browser_status` 返回带短编号的 inventory，用户选定后，技能映射为 UUID，调用 `browser_select({mode:"reuse",instance_id:"<UUID>"})`。隔离模式使用 `browser_select({mode:"isolated"})` 请求独立 profile，以一次性启动 URL 关联扩展。URL 只证明启动意图，不证明真实隔离：雪诺可能退出新进程或将 URL 打开到原有窗口。接入带隔离 nonce 的连接及每次自有实例网页操作前，Broker 都核验实际可执行文件与精确 profile 参数对应的存活进程；失败则 detach，不发送页面操作。目前该核验仅实现于 Windows，其他平台隔离模式保持不可验证并拒绝操作，复用不受影响。真实雪诺隔离验收尚未通过。两种模式都通过 Playwright 操作网页，Computer Use 只可启动雪诺。
+
+不同标签页可以并行，同一标签页由一个会话独占。断线后旧引用失效，重新读取 inventory 并按用户明确选择实例，再发现和绑定页面，不自动 rebind 或重放提交。离开隔离实例前询问是否关闭并清理；未明确同意和异常断开均保留。复用浏览器与标签页始终保留。安装、升级及源码兼容入口见 [连接说明](plugin/skills/cdphelper/references/setup.md)。不发布自有 npm 包；技术校验和测试通过不代表已取得上游分发授权。
+
 ## 两种启动方式
 
 完整启动参数统一维护在根目录 `package.json`；Paseo 的同名快捷入口只调用对应 pnpm 命令。两种模式共用 `http://127.0.0.1:9223`，应先停止一种再启动另一种。
 
-| 命令 | 浏览器来源 | 端口 |
-| --- | --- | --- |
-| `pnpm run proxy-local` | 客户端连接时启动独立浏览器，并加载构建后的扩展 | 客户端入口 9223 |
-| `pnpm run proxy-existing` | 已运行的浏览器通过手动加载的扩展接入 | 客户端入口 9223；ReverseWS 监听 `127.0.0.1:29292` |
+| 命令                      | 浏览器来源                                     | 端口                                              |
+| ------------------------- | ---------------------------------------------- | ------------------------------------------------- |
+| `pnpm run proxy-local`    | 客户端连接时启动独立浏览器，并加载构建后的扩展 | 客户端入口 9223                                   |
+| `pnpm run proxy-existing` | 已运行的浏览器通过手动加载的扩展接入           | 客户端入口 9223；ReverseWS 监听 `127.0.0.1:29292` |
 
 ### 启动独立浏览器
 
@@ -173,8 +187,6 @@ node js/scripts/verify-existing-playwright.mjs http://127.0.0.1:9223 example.com
 
 ```sh
 pnpm run demo:js
-pnpm run demo:python
-pnpm run demo:go
 pnpm run demo:proxy:playwright
 pnpm run demo:proxy:puppeteer
 pnpm run typecheck
@@ -183,20 +195,20 @@ pnpm run lint
 pnpm run format:check
 ```
 
-示例及完整测试会先构建，可能启动浏览器，且会把扩展恢复为默认开关。Python 示例通过 `uv run` 管理依赖，Go 示例通过 Go 工具链运行；只使用 JS 时无需执行它们。
+示例及完整测试会先构建，可能启动浏览器，且会把扩展恢复为默认开关。
 
 通用 SDK 支持直接连接已有原生 CDP 端点，也支持本地启动、扩展发现和不同传输配置。现有 SDK 配置示例见 [英文 README](README.md#use-the-js-sdk)。示例的 `--loopback` 表示扩展回连原生 CDP；`--debugger` 表示通过扩展 `chrome.debugger` 操作页面；`--direct` 表示普通 CDP 命令直接发往原生端点。这些 SDK 路由选项与上述两个代理快捷入口的选择是不同层面的配置。
 
 ## 常见故障
 
-| 现象 | 排查方式 |
-| --- | --- |
-| 9223 或 29292 被占用 | 确认另一启动入口或旧代理已停止；两种模式不能同时占用 9223 |
+| 现象                                 | 排查方式                                                                                                    |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| 9223 或 29292 被占用                 | 确认另一启动入口或旧代理已停止；两种模式不能同时占用 9223                                                   |
 | 代理已监听，但连接一直等待或没有页面 | 检查扩展 service worker 是否连接 29292，是否加载了当前 worktree 的 ReverseWS 构建，以及目标是否是普通标签页 |
-| 扩展反复报连接被拒绝 | 启动 `proxy-existing`；不再使用时禁用扩展，或普通构建后重载以关闭 ReverseWS。清除旧错误后观察是否出现新错误 |
-| 修改后没有生效 | 启动脚本不会监听；重启脚本构建，核对扩展源目录，再点击重载。之后若运行过普通构建，ReverseWS 会再次关闭 |
-| 第二个客户端被拒绝 | 已有浏览器模式仅支持一个 CDP 客户端，先释放上一连接再重试 |
-| 初始化时出现不支持的命令 | 确认 Playwright ≥ 1.60 且设置 `noDefaults: true`；确认命令未超出适配器能力 |
-| 无法附加调试目标 | 检查扩展安装、`chrome.debugger` 权限及浏览器策略，必要时关闭冲突的调试会话 |
-| 页面后台截图异常或画面不同 | 切到前台后对比重试。截图受浏览器可见性与渲染行为影响，不能把一次后台异常推断为所有浏览器都不支持后台截图 |
-| 本地模式无法加载扩展 | 选择支持 `--load-extension` 的浏览器构建；`Extensions.loadUnpacked` 只有在浏览器暴露该 CDP 域时才可用 |
+| 扩展反复报连接被拒绝                 | 启动 `proxy-existing`；不再使用时禁用扩展，或普通构建后重载以关闭 ReverseWS。清除旧错误后观察是否出现新错误 |
+| 修改后没有生效                       | 启动脚本不会监听；重启脚本构建，核对扩展源目录，再点击重载。之后若运行过普通构建，ReverseWS 会再次关闭      |
+| 第二个客户端被拒绝                   | 已有浏览器模式仅支持一个 CDP 客户端，先释放上一连接再重试                                                   |
+| 初始化时出现不支持的命令             | 确认 Playwright ≥ 1.60 且设置 `noDefaults: true`；确认命令未超出适配器能力                                  |
+| 无法附加调试目标                     | 检查扩展安装、`chrome.debugger` 权限及浏览器策略，必要时关闭冲突的调试会话                                  |
+| 页面后台截图异常或画面不同           | 切到前台后对比重试。截图受浏览器可见性与渲染行为影响，不能把一次后台异常推断为所有浏览器都不支持后台截图    |
+| 本地模式无法加载扩展                 | 选择支持 `--load-extension` 的浏览器构建；`Extensions.loadUnpacked` 只有在浏览器暴露该 CDP 域时才可用       |

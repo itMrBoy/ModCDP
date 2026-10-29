@@ -1,7 +1,3 @@
-// MODCDP_TRANSLATE: KEEP THIS FILE TRANSLATED ACROSS TYPESCRIPT, PYTHON, AND GO.
-// Keep all shapes, signatures, behavior, and tests 1:1 in sync with:
-// - ./python/modcdp/translate/translate.py
-// - ./go/modcdp/translate/translate.go
 // @ts-nocheck
 // Pure stateless translation between ModCDP and raw CDP messages.
 // No I/O, no maps, no classes. Trivial to port to any language.

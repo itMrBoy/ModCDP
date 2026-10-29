@@ -1,49 +1,101 @@
 ---
-description: 扩展重载、ReverseWS 构建开关与 shared extension ZIP 的一致性；何时重建、如何区分测试验收与 npm 发布责任。
+description: >-
+  JS SDK 与扩展构建、cdpHelper 子模块单向产物交付、备份回滚、合并 PR 后的扩展 Release
+  与中文源码差异说明；区分自动检查与真实宿主、雪诺验收。
 kind: guide
 code:
   paths:
+    - .gitmodules
     - package.json
     - paseo.json
     - tsconfig.json
     - js/scripts/build-extension-assets.mjs
+    - js/scripts/build-plugin.mjs
+    - js/scripts/deliver-plugin.mjs
+    - js/scripts/release-extension.mjs
+    - js/scripts/release-notes.mjs
+    - plugin/version.json
+    - plugin/release/README.md
+    - plugin/release/README.zh-CN.md
+    - plugin/skills/cdphelper/references/setup.md
+    - plugin/skills/cdphelper/scripts/run.mjs
+    - README.md
+    - README.zh-CN.md
+    - plugin/test/runtime.test.mjs
+    - plugin/test/delivery.test.mjs
+    - plugin/test/release-extension.test.mjs
+    - plugin/test/release-notes.test.mjs
     - .pre-commit-config.yaml
     - .github/workflows/test.yml
+    - .github/workflows/release-extension.yml
     - .github/workflows/lint.yml
-    - .github/workflows/release.yml
 relations:
   related:
     - development/sdk-parity.mdx
     - browser/worker-lifecycle.mdx
     - browser/cdp-endpoint.mdx
+    - connection/cdphelper-plugin-runtime.mdx
 ---
-
 # 构建产物与验收边界
 
-适用于改动浏览器扩展、代理启动入口、SDK 分发或发布流程。命令和版本以 `package.json`、各语言 manifest 与 README 为准；这里维护容易在重复操作中破坏的构建顺序和成功判据。
+仓库维护 JS SDK、浏览器扩展与 Codex/Claude Code 插件。命令和版本以 manifest、构建脚本及 README 为准；这里维护构建顺序、产物权属和验收边界。Python/Go SDK 及其 ZIP 副本、专属检查不再属于构建链。
 
 ## 选择并完成同一种构建
 
-Node 工具链生产各语言共用的浏览器端服务。普通安装通过 `prepare` 执行构建；不要新增再次调用安装的 `install` 生命周期入口。构建中的 Python README 步骤只检查文件存在，不要求 Python 运行时。
+普通安装通过 `prepare` 构建 JS 包和扩展，不要新增再次调用安装的 `install` 生命周期入口。普通构建不重新生成协议，也不代表已构建插件。
 
-先决定是否需要扩展主动连接 ReverseWS 或 NATS。它们是资源编译时开关，普通 `build` 会关闭，并不是可以经 `Mod.configure` 随时开启的服务器配置。
+ReverseWS 与 NATS 是资源编译时开关，普通 `build` 会关闭。已有浏览器启动入口必须先完成普通构建，再以 ReverseWS 开关重建扩展，最后直接执行代理 CLI；再次调用普通构建会覆盖开关。Paseo 快捷入口应复用根脚本。
 
-已有浏览器启动入口必须先完成普通构建，再以 ReverseWS 开关重建扩展资源，最后直接执行构建后的代理 CLI。若最后改为再次调用会执行普通构建的入口，刚选定的开关就会被覆盖。快捷入口应复用根脚本，避免 Paseo 与命令行各自维护一份参数。
+扩展资源构建同时产生可加载目录和归档。构建不是事务：失败后应重新完成整条链，不能分发新旧混合产物；跨平台归档字节不保证完全相同。浏览器须加载对应产物目录，重建不 watch、不自动重载，也不更新另一 worktree 装载的扩展。
 
-资源脚本从同一次构建产生 `dist/extension` 与 ZIP，并把归档复制给 Python、Go 包。构建不是事务：编译或归档失败后，不应发布部分更新的目录或新旧混合的 ZIP。修复后重新完成整条链；跨平台归档字节也不保证完全相同。
+## 插件是完整可搬运的产物
 
-## 对齐实际加载位置
+插件构建生成 `dist/plugin-marketplace`，提供 Codex 与 Claude Code 的 marketplace/plugin 配置、技能、入口和压缩运行时；浏览器扩展为独立 Release ZIP，由用户自行下载并手动加载。构建端解析固定生产依赖闭包，保留依赖许可证，将运行时与依赖打入 runtime.pack.gz，并清除候选中的展开目录；客户端不依赖源码 checkout、pnpm 符号链接或安装脚本，也不下载 Playwright 浏览器。插件不能接收扩展目录或下载、复制扩展来配置实例。
 
-浏览器必须加载当前 checkout 的 `dist/extension`。源码目录 `extension/` 不可替代可加载产物；重建也不会更新另一 worktree 已装载的目录。
+Git 不跟踪展开的 node_modules，检查范围同时覆盖候选工作树、暂存区和准备推送的分发历史；只删除最新树中的依赖目录，不能证明旧提交不会随推送上传。发布前须确认可达历史满足同一约束，保留的本地备份历史不能进入待发布分支的祖先链。压缩运行时中保留完整生产依赖及许可证，不将压缩交付误写为无需依赖或用户需要 npm install。
 
-构建脚本不 watch、不自动重载扩展。资源改变后应重载实际装载的扩展，并重新建立连接。发布或打包 SDK 前，核对加载目录、归档及两个语言包副本属于所选构建，避免把本地可选连接方式作为默认产物分发。
+插件使用的扩展以 ReverseWS 构建；普通构建不能替代该步骤。入口校验随包文件并运行完整产物，不通过下载或缓存复制修补依赖；客户端只使用用户提供的 Node ≥ 22，不自动切换 Node 或修改 PATH。依赖、版本或入口变化时应重建完整插件，不能单独替换已校验文件。profile 的连接身份位于扩展 storage，公共扩展目录不是实例配置写入点。
 
-ZIP 同步仅证明共享浏览器端服务一致，不能证明三个客户端 SDK 的能力或原生传输实现一致；语言维护边界见 `development/sdk-parity.mdx`。
+唯一插件分发入口为 cdpHelper 的 main 分支：该仓根维护两端 marketplace，`plugins/cdphelper` 放完整产物，不引入或复制 ModCDP 源码。ModCDP 维护源码、构建和测试，并从根目录 `cdpHelper/` 子模块锁定分发仓提交；初始化后可在当前源码工作区看到市场与插件。关联方向只能是 ModCDP → cdpHelper，不能在分发仓反向建立 `source/ModCDP` 子模块或形成递归引用。扩展 ZIP 独立放 cdpHelper Release，不进入插件目录或插件 Git 树，不使用 plugin-dist 分支。仓库不通过 npm 分发本插件。
+
+发布输入全部归 ModCDP 维护，包括运行时、技能和清单生成逻辑；静态技能也与 MCP 工具契约配套校验，不以是否编译拆分维护权。cdpHelper 的市场与插件是生成结果，不手工修改。构建命令只生成本地候选，不依赖子模块已初始化；交付命令才将候选写入分发检出。
+
+`deliver:plugin` 要求源码干净、cdpHelper 已初始化且干净，正式 URL、gitlink 与实际 HEAD 一致；受管路径内即使是 Git 忽略的本地文件，也须先保留到别处。交付锁防止同一检出并发执行，再从干净源码构建正式候选并核验外层文件、压缩运行时、版本、来源和 Release 摘要。构建后重新核验两仓状态，不能将构建期间变化的检出当作同一来源。
+
+交付只替换两端 marketplace.json 和完整 plugins/cdphelper 目录，保留子仓 README、Git 数据及其他维护文件；拒绝受管路径中的链接越界。先暂存新文件并保留旧文件，再替换及校验目标字节；失败恢复旧文件，恢复不完整时保留备份并明确报告，不能声称已回滚。交付报告记录来源、摘要与文件差异，不自动提交、推送或发布。中断遗留的锁和备份须先检查再处理，不通过重跑静默覆盖现场。
+
+交付顺序为：提交干净源码 A，从 A 构建并记录真实 source_commit；在 cdpHelper 核验、提交产物 B；最后由 ModCDP 的后续提交 C 将子模块锁定 B。C 只更新分发关联时，产物来源仍是 A，不能为了让来源等于父仓最新 HEAD 反复重建而制造循环引用。更新产物、父仓指针与 Release 附件是不同交付步骤；构建成功不等于它们已发布或验收。对外分发前，来源 A 与分发 B 都须能从各自配置的远端取得，本地对象可用不证明远端可用。
+
+发布流水线还核验 A 属于主仓 main 的祖先链，交付 PR 应以 merge commit 保留 A 的 SHA；squash 或 rebase 改写 A 后须从新提交重新构建，不能只修改来源元数据冒充原产物。
+
+父仓的格式化、检查与构建工具不得递归改写子模块内已校验的产物或其生产依赖；子模块内容由分发仓独立维护、提交和核验。不能用修改父仓忽略规则来替代检查子模块本身的 Git 状态。
+
+构建器从 plugin/skills/cdphelper 生成插件技能，以 --cdphelper-plugin 编译配套扩展；扩展 ZIP 命名为 cdphelper-extension-v版本号.zip，构建来源记录在扩展内的 cdphelper-bridge.json。版本与摘要以构建元数据为准。改名不更换扩展公钥或 ID，也不改变 bridge 协议；插件和配套扩展仍须按构建版本匹配。技能目录的兼容 runner 仅供源码开发，不进入安装产物，也不替代插件的多实例会话管理。
+
+## 合并后的扩展 Release
+
+发布流水线只在主仓 PR 已合并到 main 后处理其合并提交，或由 main 手动重试；未合并 PR 不执行发布构建。虽然事件使用 pull_request_target，构建前仍校验被检出提交属于 main。准备阶段只有只读权限；写入凭据只给独立发布 job，通过 CDPHELPER_RELEASE_TOKEN 授予 cdpHelper 仓库 Contents 读写，不给构建源码阶段。
+
+流水线从触发提交锁定的 gitlink 取得分发 B，再由 B 的 artifact 取得真实来源 A；B 必须已合入 cdpHelper main，A 必须属于已评审的 ModCDP main 历史，再构建扩展并运行 CI 浏览器 fixture 测试。Release 清单结合本次扩展附件和 B 已提交的原始市场摘要、插件摘要与 runtime digest；不能把 Linux 重建的插件字节冒充先前构建平台的 B。它不自动提交或推送源码、分发仓或 gitlink，新增版本仍须先走 A→B→C 交付。
+
+正式扩展 Release 使用与插件一致的稳定版本 tag，首次目标为 B；附件仅含独立扩展 ZIP、release-manifest.json 和 SHA256SUMS，不把扩展放入插件。先创建 draft 并上传完整附件，再正式发布。已发布同版内容一致且 tag 仍匹配其清单记录的原分发提交时跳过，不因后续 README 等维护提交将旧 tag 追平新 B；内容冲突须升版本。只恢复可确认属于当前候选的 draft。构建期间上一版基线变化或已有更高版本时停止并重跑，不能覆盖其他候选或让 Latest 倒退。
+
+整条准备与发布流水线共用仓库级串行队列，不按版本并行，以免候选抢占基线或让 Latest 倒退；仍须在发布前校验外部手工发布造成的基线变化。上一版只取已发布稳定版本，排除 draft 和 prerelease；同 tag 已公开为 prerelease 时拒绝覆盖成稳定版。
+
+中文更新说明取上一较低、已发布稳定版本清单中的 source_commit，与本版 A 比较相关非合并提交，按 Conventional Commit 分类并提供源码差异及安装说明。首发没有旧源码基线时只列最近相关提交并明确非完整历史；不能用父仓指针提交或构建日志替代用户版本变化。配置流水线不等于已经配置凭据或执行远端发布；CI fixture 成功也不等于真实雪诺验收。
 
 ## 验证到所需责任边界
 
-选择与改动相关的静态检查和真实链路测试。测试浏览器、用户已运行的浏览器、云端浏览器及原生宿主具有不同前提；一类测试通过不能替代另一类验收。端口可访问只证明入口存在，页面操作必须越过扩展连接、权限和目标会话边界。
+静态检查、自动化协议/插件测试、真实宿主加载、独立测试浏览器和真实雪诺是不同验收范围。端口可访问只证明入口存在；页面操作还须越过扩展登记、调试权限和目标会话边界。reuse 与 isolated 均须按所选 profile 完成真实页面验收，不能以其中一种成功替代另一种。旧的专属目录/动态端口测试成功不能直接证明新的统一登记契约通过；SDK 直连也不能证明宿主解析清单正确。父仓子模块的 URL、gitlink 与实际检出一致，分发仓没有反向源码子模块，产物来源准确，main 市场安装和 Release 附件完整性，均须分别验收，不提前宣称通过。
 
-完整测试有固定资源和外部服务依赖。CI 将语言组、连接器与反向连接组分开调度；本地执行也要避免冲突，不能仅以一个通用命令推断全部能力已覆盖。正常 hooks 保留；未安装 hook 时应明确说明实际手动执行的检查。
+完整测试可能依赖外部服务和固定资源；本地执行应避免端口、浏览器和前端连接冲突。保留正常 hooks；未安装 hook 时明确实际执行的手动检查。报告分别说明构建、自动回归、真实浏览器操作及尚未满足的外部前提。
 
-发布工作流只拥有 npm 分发，且受仓库和触发条件约束；它不自动发布 Python 或 Go 包。不要用发布动作验证本地改动。最终报告应分别说明构建成功、自动回归和真实浏览器验收的范围，留下未满足的外部前提。
+本地 SDK 与插件回归必须执行；依赖 Browserbase 等外部凭据的云端集成检查应独立运行，前提缺失时在 CI 通知和摘要中明确标为未运行，不能静默计入通过结果。
+
+CI 浏览器 fixture 须在锁定依赖所支持的明确 runner 版本上，安装并显式选择配套 Playwright Chromium；runner 与浏览器版本以 workflow 和 lockfile 为准，不依赖滚动的 ubuntu-latest 或系统 Chromium。该下载属于开发测试准备，与用户插件的离线运行和不下载浏览器的契约分开。
+
+加载解压扩展的测试 profile 必须按用户安装前提启用开发者模式，并验证重载后的 worker 与 peer；首次 storage API 可用不能代替重载后就绪。
+
+首次安装验收须使用空运行时目录和宿主默认连接时限，确认冷启动成功后再单独验证缓存复用；不能以已预热目录的连接成功代替首次使用验收。
+
+用户明确要求替换全局插件时，先备份相关注册、市场来源及工具审批设置，再用独立宿主配置安装和校验候选，之后通过宿主管理命令替换用户级插件。Codex 的工具审批需迁移到新插件和 MCP 命名空间，其他插件配置及活动浏览器不受清理授权。安装缓存摘要、技能加载和 MCP 连通要分别核验；不手工覆盖缓存，也不以临时宿主测试代替真实用户级安装结果。

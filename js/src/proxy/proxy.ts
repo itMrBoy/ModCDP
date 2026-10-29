@@ -16,7 +16,6 @@ import { BorrowExtensionInjector } from "../injector/BorrowExtensionInjector.js"
 import { CDPExtensionInjector } from "../injector/CDPExtensionInjector.js";
 import { CLIExtensionInjector } from "../injector/CLIExtensionInjector.js";
 import { DiscoverExtensionInjector } from "../injector/DiscoverExtensionInjector.js";
-import { InjectorConfigSchema } from "../injector/ExtensionInjector.js";
 import { BBBrowserLauncher } from "../launcher/BBBrowserLauncher.js";
 import { LocalBrowserLauncher } from "../launcher/LocalBrowserLauncher.js";
 import type { LauncherConfig } from "../launcher/BrowserLauncher.js";
@@ -64,6 +63,8 @@ type StartProxyConfig = {
   server_config?: ModCDPClientConfig["server_config"];
   forward_mirrored_upstream_events?: boolean;
   upstream_monitor_interval_ms?: number;
+  logger?: Pick<Console, "log" | "error">;
+  proxy_client_token?: string;
 };
 
 async function startProxy({
@@ -75,6 +76,8 @@ async function startProxy({
   router = {},
   client_config = {},
   server_config = {},
+  logger = console,
+  proxy_client_token,
 }: StartProxyConfig = {}) {
   const { WebSocketServer } = await loadWsForProxy();
   const active_clients = new Set<ModCDPClient>();
@@ -111,7 +114,7 @@ async function startProxy({
   };
   if (persistent_client) {
     await persistent_client.upstream.connect();
-    console.log("ReverseWS listener ready; waiting for the existing browser extension.");
+    logger.log("ReverseWS listener ready; waiting for the existing browser extension.");
     persistent_client.upstream.onClose((error) => {
       persistent_ready = null;
       clearBridgeRequests();
@@ -143,7 +146,16 @@ async function startProxy({
       }
     });
   }
+  const authorized = (req: http.IncomingMessage) =>
+    !proxy_client_token ||
+    (!req.headers.origin &&
+      new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("token") === proxy_client_token);
   const http_server = http.createServer((req, res) => {
+    if (!authorized(req)) {
+      res.writeHead(403);
+      res.end("Unauthorized");
+      return;
+    }
     const request_url = req.url === "/json/version/" ? "/json/version" : req.url;
     if (request_url === "/json/version") {
       res.writeHead(200, { "content-type": "application/json" });
@@ -169,6 +181,10 @@ async function startProxy({
   });
   const wss = new WebSocketServer({ noServer: true });
   http_server.on("upgrade", (req, socket, head) => {
+    if (!authorized(req)) {
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   });
   wss.on("connection", (socket) => {
@@ -266,10 +282,20 @@ async function startProxy({
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     await new Promise<void>((resolve) => http_server.close(() => resolve()));
   };
-  console.log(`listening on ws://${proxy_listen_host}:${proxy_listen_port}/`);
+  const actual_port = (http_server.address() as import("node:net").AddressInfo).port;
+  logger.log(`listening on ws://${proxy_listen_host}:${actual_port}/`);
   return {
-    url: `http://${proxy_listen_host}:${proxy_listen_port}`,
-    cdp_url: `ws://${proxy_listen_host}:${proxy_listen_port}`,
+    url: `http://${proxy_listen_host}:${actual_port}`,
+    cdp_url: `ws://${proxy_listen_host}:${actual_port}${proxy_client_token ? `/?token=${proxy_client_token}` : ""}`,
+    status: () => ({
+      listening: http_server.listening,
+      extension_connected: persistent_client
+        ? Boolean((persistent_client.upstream as ReverseWSUpstreamTransport).peer_info)
+        : null,
+      reverse_endpoint: persistent_client
+        ? (persistent_client.upstream as ReverseWSUpstreamTransport).endpoint_url
+        : null,
+    }),
     close,
   };
 }
@@ -425,6 +451,12 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) runProxyCli();
+// A bundled library must not turn its importing MCP entry point into the proxy CLI.
+if (
+  process.argv[1] &&
+  /[\\/]proxy\.(?:js|ts)$/.test(fileURLToPath(import.meta.url)) &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
+  runProxyCli();
 
 export { DEFAULT_UPSTREAM_MONITOR_INTERVAL_MS, DEFAULT_REVERSE_WAIT_TIMEOUT_MS, startProxy, runProxyCli };

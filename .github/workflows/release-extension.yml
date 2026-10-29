@@ -1,0 +1,127 @@
+name: Release cdpHelper extension
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cdphelper-extension-release
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    # Never execute an unmerged PR with pull_request_target. Only reviewed main commits are built.
+    if: >-
+      github.repository == 'itMrBoy/ModCDP' &&
+      ((github.event_name == 'pull_request_target' && github.event.pull_request.merged == true) ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          path: tooling
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the reviewed commit belongs to main
+        working-directory: tooling
+        run: git merge-base --is-ancestor HEAD origin/main
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+      - name: Verify release tooling without publishing
+        run: node --test tooling/plugin/test/release-notes.test.mjs tooling/plugin/test/release-extension.test.mjs
+      - name: Resolve the pinned distribution
+        id: gitlink
+        run: node tooling/js/scripts/release-extension.mjs gitlink --tooling tooling
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: itMrBoy/cdpHelper
+          ref: ${{ steps.gitlink.outputs.distribution_commit }}
+          path: distribution
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the plugin is already merged into the public marketplace
+        working-directory: distribution
+        run: git merge-base --is-ancestor HEAD origin/main
+      - name: Resolve the paired source and version
+        id: metadata
+        run: node tooling/js/scripts/release-extension.mjs metadata --tooling tooling --distribution distribution
+      - name: Verify paired source is part of the reviewed main history
+        working-directory: tooling
+        env:
+          PAIRED_SOURCE: ${{ steps.metadata.outputs.source_commit }}
+        run: git merge-base --is-ancestor "$PAIRED_SOURCE" HEAD
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: itMrBoy/ModCDP
+          ref: ${{ steps.metadata.outputs.source_commit }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+      - name: Install build dependencies
+        working-directory: source
+        run: pnpm install --frozen-lockfile
+      - name: Build the clean paired source
+        working-directory: source
+        run: pnpm run build:plugin -- --release
+      - name: Install CI browser fixture
+        working-directory: source
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Verify the plugin and bridge
+        working-directory: source
+        run: |
+          export SNOW_TEST_BROWSER="$(node --input-type=module -e "import {chromium} from 'playwright'; process.stdout.write(chromium.executablePath())")"
+          pnpm run test:plugin
+      - name: Prepare attachments and Chinese source changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_OUTPUT: ${{ runner.temp }}/cdphelper-release
+        run: >-
+          node tooling/js/scripts/release-extension.mjs prepare
+          --tooling tooling --source source --distribution distribution
+          --output "$RELEASE_OUTPUT" --github
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: cdphelper-extension-${{ steps.metadata.outputs.version }}
+          path: ${{ runner.temp }}/cdphelper-release/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: cdphelper-extension-${{ needs.prepare.outputs.version }}
+          path: release-bundle
+      - name: Publish the version tag and paired extension to cdpHelper
+        env:
+          GH_TOKEN: ${{ secrets.CDPHELPER_RELEASE_TOKEN }}
+        run: node js/scripts/release-extension.mjs publish --bundle release-bundle

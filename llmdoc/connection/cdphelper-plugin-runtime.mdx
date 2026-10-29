@@ -1,0 +1,76 @@
+---
+description: >-
+  Codex 与 Claude Code cdpHelper 插件的本地 Broker、先列出现有实例再选择或启动隔离实例、多会话独占 tab、扩展 bridge
+  与断线保留及确认清理边界。
+kind: architecture
+code:
+  paths:
+    - plugin/launch.mjs
+    - plugin/src/cli.mjs
+    - plugin/src/service.mjs
+    - plugin/src/broker.mjs
+    - plugin/src/bridge.mjs
+    - plugin/test/bridge.test.mjs
+    - plugin/test/browser.test.mjs
+    - plugin/src/isolated.mjs
+    - plugin/src/tools.mjs
+    - plugin/skills/cdphelper/SKILL.md
+    - plugin/skills/cdphelper/agents/openai.yaml
+relations:
+  requires:
+    - browser/cdp-endpoint.mdx
+  related:
+    - connection/browser-lifecycle.mdx
+    - development/build-and-validation.mdx
+---
+# cdpHelper 插件的会话与资源权属
+
+Codex 与 Claude Code 共用本地 MCP 工具及 Playwright。技能负责用户选择和使用流程；本页维护实例登记、会话及 tab 权属、断连与清理边界。源码仓不充当安装产物；用户安装 cdpHelper main 的 marketplace 与完整插件。ModCDP 从根目录 cdpHelper 子模块锁定分发提交，分发仓不引入源码；产物通过构建元数据记录源码提交，具体交付顺序由构建指南维护。
+
+## 宿主入口与命名空间
+
+Codex 兼容清单显式声明技能与专用 MCP 配置；portable 根清单的 OpenAI extension 保持对应配置。Codex 的入口和 cwd 按已安装插件根目录解析，不能假定其会展开 Claude 的插件变量。Claude Code 使用自己的 .mcp.json 配置。三份 MCP 配置统一使用 cdphelper 作为 server key。
+
+宿主验收必须分别检查技能发现与 MCP 连接；Codex 可能按插件命名空间返回 cdphelper:cdphelper，用户级安装为 scope:user，不能只按未限定技能名精确匹配。SDK 直接启动运行时的成功结果不能代替真实宿主对清单、路径和变量的解析验收。
+
+标识统一使用 cdphelper，展示名称为 cdpHelper；技能正文仍可保留当前内部雪诺浏览器操作说明。插件命名不意味着浏览器兼容范围扩大，实际雪诺隔离仍受下文进程归属核验和真实验收限制。
+
+运行数据写入 ~/.cdphelper；旧 ~/.snow-browser 原样保留，不自动迁移浏览器实例或清理 profile。新服务不根据旧目录记录取得浏览器控制权。
+
+## 一个后台服务，多个登记实例
+
+每个 MCP stdio 接入建立独立会话，同一用户目录复用一个后台 Broker。启动锁与 runtime 身份协调后台复用；旧 runtime 仍有活跃会话时阻止升级接管，不杀进程或静默切换版本。stdio 只承载协议，日志独立保存。入口使用 Node ≥22 和完整随包依赖，不下载依赖、不切换 Node 或修改 PATH，也不通过缓存复制修补不完整产物。
+
+运行时与固定版本生产依赖以 runtime.pack.gz 随包交付，插件 Git 树不包含展开的 node_modules。入口使用 Node 内置能力先校验外层产物，再按内部 runtime inventory 核验文件路径、内容与权限，并限制解压大小；首次运行只在用户运行时目录内物化文件，完整验证后原子启用，后续仍校验缓存。缺失或校验失败须报告，不能联网补装或跳过校验。依赖在本机缓存展开是运行准备，不代表将依赖目录提交到仓库。
+
+多个普通 profile 统一通过 127.0.0.1:29393/bridge 登记为独立实例；公共监听入口不等于共用实例身份。每个 profile 的连接身份保存在自己的扩展 storage 中。`plugin/src/bridge.mjs` 拥有29393监听、扩展 Origin 与 hello 协议/版本核验，以及每个 peer 到各自认证代理的 relay；这些职责不下沉为普通页面权限。用户从独立 Release ZIP 自行安装扩展，插件不接收目录、不下载或复制扩展、不提供 configure_extension，不向公共扩展目录写入凭据。
+
+Broker 为所选实例持有唯一 Playwright 连接，多会话共享该连接。底层代理单个 CDP 前端的限制仍然成立；插件通过内部调度和 tab 归属提供多会话，不能由此推断独立代理支持多个 Playwright 客户端。IPC 和 CDP 前端保留身份校验；扩展登记及启动关联同样必须落在预期本机信任边界，不能用浏览器 UA 或端口监听代替 profile 身份。
+
+会话操作顺序执行，不同会话的不同 tab 可以并行。同一 tab 绑定实例且由一个会话独占，其他会话只能看到 busy。新 tab 自动归创建会话，释放会话仅解除占用。页面内容不是新的操作授权。
+
+## 每会话明确选择实例
+
+首次浏览器操作必须先 browser_status 列出 inventory 的名称、短编号及状态，再在同一问题提供已有实例与新开隔离选项，不能先泛问 reuse/isolated 再查询清单。未选择时页面工具拒绝操作，不设置隐式默认或失败 fallback。短编号映射到当前连接的完整 instance_id UUID，不能要求用户查找 UUID，也不能用唯一一个在线实例替代用户的选择。
+
+reuse 选择已登记普通 profile，沿用其登录状态和 cookies；同一 profile 不隔离账号。isolated 请求启动实际雪诺的独立 profile，通过一次性启动关联 URL 将对应扩展首次登记与本次创建关联，不复制现有 profile，也不依赖原生 CDP。找不到雪诺、扩展未安装或关联失败时明确报告，不切换其他 Chromium 或复用实例。
+
+启动 nonce/URL 只表示请求归属，不能证明收到 URL 的浏览器仍是独立 profile。雪诺可能退出新进程或合并到原有窗口；带 nonce 的接入必须经 isolatedRunning 核验存活进程的真实 executable、精确 profile 参数及目录/owner marker。每次自有实例页面动作前重新核验，失败 detach、使引用失效且不发送页面操作，不自动转为 reuse。核验目前仅在 Windows 实现，非 Windows 明确返回 false；隔离只能在可验证环境尝试，不承诺实际雪诺支持，复用模式不受影响。
+
+pending 提供 launch_process_running 与 waiting_for_extension/launch_exited_unverified，区分已核验进程仍等扩展和进程退出、合并或不可验证。后一状态须明确报告隔离未建立，并按用户意愿保留或清理后才重试。不能把等待扩展与已建立隔离混为一谈。
+
+监听、profile 登记、所选实例连接和 Playwright 页面可操作是不同状态。用户仍需在目标 profile 手动安装/重载 Release 扩展；同一份扩展文件可供多个 profile 加载，配置位于 profile storage。profile 隔离不承诺隔离雪诺原生账号或系统凭据。
+
+隔离实例的所有权记录 ID 稳定，但每次扩展连接均分配新的连接 UUID；连接重建不是同一选择的延续。inventory 的 instance_id 用于当前连接选择，owned_instance_id 指向隔离所有权记录，retained 的 instance_id 用于清理，不能互换。
+
+## 断线、退出与清理
+
+扩展失联、页面关闭或切换实例后，旧 tab 引用失效；重连不自动恢复归属，也不自动 rebind。重新读取 inventory，由用户明确选择实例，再发现和绑定页面。超时或断线不能触发有副作用操作的自动重放，必须先核对实际结果。
+
+客户端退出、心跳失联或后台空闲回收只释放会话、连接及服务资源，不自动关闭用户窗口或删除隔离 profile。保留记录不证明浏览器仍存活，也不表示已获下次清理同意。stdio 入口收到 EOF、SIGINT 或 SIGTERM 时，先释放会话，再关闭 MCP server/transport，让事件循环自然退出，避免 Windows Node 尚在关闭句柄时强制 process.exit；错误写标准错误和退出码。
+
+Bridge 关闭先停止接入并解除自有连接，再回收本服务的 HTTP 连接；不能等待浏览器初始化页或预连接补齐请求头后才退出，也不因此关闭浏览器或标签页。
+
+离开 isolated 实例前必须询问是否关闭并清理；仅有用户明确同意才执行。清理先核验目录边界和 owner marker，再核对实际进程身份，确认退出后才删除。Windows 先请求关闭窗口，必要时只停止再次核验匹配的自有进程，不直接终止记忆中的 PID。其他平台仍在运行时提示手动关闭后重试。核验使用有超时上限的异步进程调用，不阻塞 Broker 心跳及其他会话。
+
+未答复、拒绝或异常断开均保留窗口与 profile；失败保留记录并报告阻碍。reuse 永远不取得用户原有浏览器和 tab 的关闭权。确认字段只能反映真实答复，不能将无答复当作同意。

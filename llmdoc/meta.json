@@ -1,33 +1,36 @@
 {
   "schema": "llmdoc.meta/v3",
   "baseline": {
-    "revision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f",
-    "verifiedAt": "2026-10-28T10:29:23.031Z"
+    "revision": "a68ee7975efd2c1b630f0e82208813eb521d4f22",
+    "verifiedAt": "2026-10-29T07:19:35.280Z"
   },
   "documents": {
     "browser/cdp-endpoint.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "browser/worker-lifecycle.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "connection/browser-lifecycle.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "connection/transports.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "development/build-and-validation.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "db157685ec03688242558ee1e9042a63309dafe0"
     },
     "development/sdk-parity.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "protocol/command-execution.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "protocol/session-routing.mdx": {
-      "validatedRevision": "41df7156d9b27fb6379c042c93bbdfd82724bb7f"
+      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
+    },
+    "connection/cdphelper-plugin-runtime.mdx": {
+      "validatedRevision": "db157685ec03688242558ee1e9042a63309dafe0"
     }
   },
   "convergence": {

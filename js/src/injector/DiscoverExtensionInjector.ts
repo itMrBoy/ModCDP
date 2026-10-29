@@ -1,7 +1,3 @@
-// MODCDP_TRANSLATE: KEEP THIS FILE TRANSLATED ACROSS TYPESCRIPT, PYTHON, AND GO.
-// Keep all shapes, signatures, behavior, and tests 1:1 in sync with:
-// - ./python/modcdp/injector/DiscoverExtensionInjector.py
-// - ./go/modcdp/injector/DiscoverExtensionInjector.go
 import { ExtensionInjector, InjectorConfigSchema } from "./ExtensionInjector.js";
 import type { z } from "zod";
 import { extensionIdFromManifestKey, prepareUnpackedExtension, type PreparedExtension } from "./NodeExtensionFiles.js";

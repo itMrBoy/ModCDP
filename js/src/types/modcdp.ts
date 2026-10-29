@@ -1,8 +1,4 @@
 /// <reference types="chrome" />
-// MODCDP_TRANSLATE: KEEP THIS FILE TRANSLATED ACROSS TYPESCRIPT, PYTHON, AND GO.
-// Keep all shapes, signatures, behavior, and tests 1:1 in sync with:
-// - ./python/modcdp/types/modcdp.py
-// - ./go/modcdp/types/types.go
 
 import { z } from "zod";
 

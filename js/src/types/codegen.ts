@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// MODCDP_TRANSLATE: KEEP THIS FILE TRANSLATED ACROSS TYPESCRIPT, PYTHON, AND GO.
-// Keep all shapes, signatures, behavior, and tests 1:1 in sync with:
-// - ./python/modcdp/types/codegen.py
-// - ./go/modcdp/types/codegen.go
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

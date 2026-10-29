@@ -6,7 +6,7 @@
     "node": true,
     "browser": true
   },
-  "ignorePatterns": ["dist/**", "node_modules/**", "types/cdp.ts", "types/zod.ts"],
+  "ignorePatterns": ["cdpHelper/**", "dist/**", "node_modules/**", "types/cdp.ts", "types/zod.ts"],
   "rules": {
     "no-console": "off",
     "no-empty": "off",

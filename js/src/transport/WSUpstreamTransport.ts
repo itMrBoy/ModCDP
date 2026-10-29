@@ -1,7 +1,3 @@
-// MODCDP_TRANSLATE: KEEP THIS FILE TRANSLATED ACROSS TYPESCRIPT, PYTHON, AND GO.
-// Keep all shapes, signatures, behavior, and tests 1:1 in sync with:
-// - ./python/modcdp/transport/WSUpstreamTransport.py
-// - ./go/modcdp/transport/WSUpstreamTransport.go
 import { resolveCdpWebSocketUrl } from "../launcher/BrowserLauncher.js";
 import type { z } from "zod";
 import type { CdpCommandSchema } from "../types/generated/zod/helpers.js";

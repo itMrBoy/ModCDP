@@ -6,17 +6,8 @@ code:
     - js/src/client/ModCDPClient.ts
     - js/src/types/CDPTypes.ts
     - js/src/types/modcdp.ts
-    - python/modcdp/client/ModCDPClient.py
-    - python/modcdp/types/CDPTypes.py
-    - python/modcdp/types/modcdp.py
-    - python/modcdp/types/jsonschema.py
-    - go/modcdp/client/ModCDPClient.go
-    - go/modcdp/client/CDPTypes.go
-    - go/modcdp/types/types.go
     - js/src/server/ModCDPServer.ts
     - js/src/translate/translate.ts
-    - python/modcdp/translate/translate.py
-    - go/modcdp/translate/translate.go
 relations:
   related:
     - protocol/session-routing.mdx
@@ -26,7 +17,7 @@ relations:
 
 # 特权命令执行与事件封装
 
-客户端统一提供标准 CDP、`Mod.*` 和注册的 Custom 命令。逻辑执行分为选择目标、跨边界封装、服务器执行与结果校验；物理传输不负责选择路由或解释自定义表达式。浏览器端 JS server 是共享的特权执行者，语言客户端只实现各自的调用和协议处理。
+JS 客户端统一提供标准 CDP、`Mod.*` 和注册的 Custom 命令。逻辑执行分为选择目标、跨边界封装、服务器执行与结果校验；物理传输不负责选择路由或解释自定义表达式。浏览器端 server 是特权执行者，客户端实现调用和协议处理。
 
 ## 路由不等于传输
 
@@ -54,7 +45,7 @@ MV3 worker 不使用普通字符串 eval 执行表达式，server 经浏览器 u
 
 生成 schema 对应某个协议输入版本，实际浏览器可能不同。为避免本机事件或枚举漂移被错误丢弃，server 的原生事件镜像分支不强制解析 native payload，`ChromeDebuggerCDPAdapter` 的原生响应分支也在 response middleware 后直接返回。Custom 事件与 Custom/Mod 命令仍校验。
 
-这些是限定在 server 分支的兼容处理，绝不是全局关闭 schema。普通客户端 `_onRecv`、普通 `send` 以及非 adapter 分支仍经过 `CDPTypes`。调查版本漂移时必须指出实际路径，不能假设每个传输或语言客户端都自动接受所有原生结果。
+这些是限定在 server 分支的兼容处理，绝不是全局关闭 schema。普通客户端 `_onRecv`、普通 `send` 以及非 adapter 分支仍经过 `CDPTypes`。调查版本漂移时必须指出实际路径，不能假设每种调用链都自动接受所有原生结果。
 
 ## 失败传播
 

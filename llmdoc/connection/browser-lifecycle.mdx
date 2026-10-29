@@ -15,28 +15,6 @@ code:
     - js/src/injector/BBExtensionInjector.ts
     - js/src/injector/BorrowExtensionInjector.ts
     - js/src/injector/NodeExtensionFiles.ts
-    - python/modcdp/launcher/BrowserLauncher.py
-    - python/modcdp/launcher/LocalBrowserLauncher.py
-    - python/modcdp/launcher/RemoteBrowserLauncher.py
-    - python/modcdp/launcher/NoneBrowserLauncher.py
-    - python/modcdp/launcher/BBBrowserLauncher.py
-    - python/modcdp/injector/ExtensionInjector.py
-    - python/modcdp/injector/CLIExtensionInjector.py
-    - python/modcdp/injector/CDPExtensionInjector.py
-    - python/modcdp/injector/DiscoverExtensionInjector.py
-    - python/modcdp/injector/BBExtensionInjector.py
-    - python/modcdp/injector/NodeExtensionFiles.py
-    - go/modcdp/launcher/BrowserLauncher.go
-    - go/modcdp/launcher/LocalBrowserLauncher.go
-    - go/modcdp/launcher/RemoteBrowserLauncher.go
-    - go/modcdp/launcher/NoneBrowserLauncher.go
-    - go/modcdp/launcher/BBBrowserLauncher.go
-    - go/modcdp/injector/ExtensionInjector.go
-    - go/modcdp/injector/CLIExtensionInjector.go
-    - go/modcdp/injector/CDPExtensionInjector.go
-    - go/modcdp/injector/DiscoverExtensionInjector.go
-    - go/modcdp/injector/BBExtensionInjector.go
-    - go/modcdp/injector/NodeExtensionFiles.go
 relations:
   related:
     - connection/transports.mdx
@@ -69,3 +47,5 @@ CLI injector 在启动前准备扩展路径和参数，CDP injector 经浏览器
 准备扩展可能产生 launcher 参数；launcher 结果又为 upstream 及 server 提供地址。物理连接后仍需完成注入/发现、绑定及远端配置。看到进程、端口或 target 不等于服务就绪；各步骤的失败应保留其责任边界，避免以另一个模式的成功掩盖缺少权限或资源。
 
 关闭时只清理当前链路拥有的 transport、注入资源与 launcher 资源。特别是用户独立打开的浏览器，断开客户端或停止代理不应被解释为授权关闭它。服务器的可选“客户端失联后关闭”策略是额外显式配置，不是借用浏览器的默认含义。
+
+cdpHelper 插件由自己的 Broker 管理 reuse 与独立 profile 的启动尝试；不能把 spawn 成功或 URL 被打开当作隔离成功。Broker 在 nonce 接入及自有实例页面操作前核验实际进程与精确 profile，无法核验时拒绝操作。插件不能直接套用 SDK local launcher 的自动清理策略。两种模式均连接各自扩展，断线保留窗口与 profile，用户确认后才关闭清理隔离实例；具体权属由 `connection/cdphelper-plugin-runtime.mdx` 维护。

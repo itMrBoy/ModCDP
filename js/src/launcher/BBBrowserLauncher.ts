@@ -1,7 +1,3 @@
-// MODCDP_TRANSLATE: KEEP THIS FILE TRANSLATED ACROSS TYPESCRIPT, PYTHON, AND GO.
-// Keep all shapes, signatures, behavior, and tests 1:1 in sync with:
-// - ./python/modcdp/launcher/BBBrowserLauncher.py
-// - ./go/modcdp/launcher/BBBrowserLauncher.go
 import { BrowserLauncher, type LauncherConfig, type LaunchedBrowser } from "./BrowserLauncher.js";
 import { ModCDPLauncherConfigSchema } from "../types/modcdp.js";
 

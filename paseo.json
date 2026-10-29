@@ -9,6 +9,12 @@
     "build": {
       "command": "pnpm run build"
     },
+    "build-plugin": {
+      "command": "pnpm run build:plugin"
+    },
+    "deliver-plugin": {
+      "command": "pnpm run deliver:plugin"
+    },
     "proxy-local": {
       "command": "pnpm run proxy-local"
     },

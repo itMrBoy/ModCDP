@@ -28,20 +28,20 @@ Instead of inventing yet another browser driver library, ModCDP fixes the issue 
 
 ModCDP exposes a CDP-shaped interface for unmodified clients such as Playwright and Puppeteer. Compatibility depends on the transport, browser capabilities, and commands used; extension-only mode implements a subset of browser-level CDP. See [existing-browser mode](#reverse-proxy-mode) for the verified scope and limitations.
 
-You can send `Mod.*`, `Custom.*`, etc. through standard Playwright/Puppeteer/other-driver-managed CDP sessions; `js/examples/demo.ts`, `python/examples/demo.py`, and `go/examples/demo/main.go` demonstrate the flow in each language.
+You can send `Mod.*`, `Custom.*`, etc. through standard Playwright/Puppeteer/other-driver-managed CDP sessions; `js/examples/demo.ts` demonstrates the flow.
 
-## Language packages
+## Repository components
 
-The language directories provide different SDKs, not three services that must all run. Their feature coverage is not identical.
+The JavaScript SDK, browser extension, and cdpHelper plugin share the browser-side implementation.
 
-| Directory | Responsibility | Use it when |
-| --- | --- | --- |
-| `js/` | TypeScript/JavaScript client, Node proxy/CLI, browser-side server implementation, and development tools | Running the current proxy, using the JS SDK, or building the extension |
-| `python/` | Python client SDK, examples, and tests | Calling ModCDP from Python |
-| `go/` | Go client SDK, examples, and tests | Calling ModCDP from Go |
-| `extension/` | Shared browser extension entry point and static pages; reuses server logic from `js/` | Installing the bridge in the controlled browser |
+| Directory                  | Responsibility                                                                                          | Use it when                                                            |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `js/`                      | TypeScript/JavaScript client, Node proxy/CLI, browser-side server implementation, and development tools | Running the current proxy, using the JS SDK, or building the extension |
+| `extension/`               | Shared browser extension entry point and static pages; reuses server logic from `js/`                   | Installing the bridge in the controlled browser                        |
+| `plugin/`                  | Shared local MCP runtime and launcher                                                                   | Operating Snow Browser through Codex or Claude Code                    |
+| `plugin/skills/cdphelper/` | Shared skill source                                                                                     | Browser selection, operation, and cleanup instructions for both hosts  |
 
-The current Node proxy does not require Go or Python. Even Python and Go clients use the shared TypeScript/JavaScript browser-side implementation. The existing-browser adapter changes are in `js/` and the shared `extension/src/service_worker.ts` entry point. Go/Python source was not changed for this adaptation; their `extension.zip` files are synchronized copies of the shared build artifact. The new Node proxy capabilities have not been ported to native Go/Python implementations.
+Extension builds write only to `dist/`. The standalone Node proxy remains available alongside the plugin.
 
 ## Install and build
 
@@ -51,17 +51,38 @@ For the Node proxy and extension build, install **Node ≥ 22** and **pnpm 10.33
 pnpm install --frozen-lockfile
 ```
 
-Installation runs `prepare`, which builds the package and extension. There is no separate package-level `install` script. Windows uses PowerShell to create the extension ZIP; other platforms need `zip` on PATH. Go and Python are optional: prepare Python ≥ 3.11 and `uv` for the Python demo, or Go ≥ 1.25 for the Go demo. Run `uv sync` inside `python/` or `go mod download` inside `go/` to install the corresponding SDK dependencies, declared in `python/pyproject.toml` and `go/go.mod`.
+Installation runs `prepare`, which builds the package and extension. There is no separate package-level `install` script. Windows uses PowerShell to create the extension ZIP; other platforms need `zip` on PATH. These are source-development requirements; plugin users only need Node ≥ 22 and the installed Snow Browser.
 
 ```sh
-pnpm run build                    # TypeScript output, default extension assets, Python README existence check
+pnpm run build                    # TypeScript output and default extension assets
 pnpm run build:package            # TypeScript output only
 pnpm run build:extension-assets   # Default extension assets only; ReverseWS and NATS disabled
+pnpm run build:plugin             # Portable Codex / Claude Code marketplace with bundled runtime
 ```
 
-Outputs include `dist/js/`, the unpacked extension in `dist/extension/`, and `dist/extension.zip`. Each extension-assets build also replaces `python/modcdp/extension.zip` and `go/modcdp/injector/extension.zip` with that same archive, including its selected ReverseWS/NATS flags. Building does not reload an installed extension or watch files.
+Outputs include `dist/js/`, the unpacked extension in `dist/extension/`, and `dist/extension.zip`. Building does not reload an installed extension or watch files.
 
-To get started, choose one of the [proxy shortcuts](#proxy-shortcuts-and-paseo) below. Existing-browser mode supports browsers with external CDP access disabled, provided extension installation and `chrome.debugger` access are allowed. It does not bypass browser or administrator restrictions on those capabilities.
+For standalone SDK usage, choose one of the [proxy shortcuts](#proxy-shortcuts-and-paseo) below. The cdpHelper plugin is described in the next section. Existing-browser mode supports browsers with external CDP access disabled, provided extension installation and `chrome.debugger` access are allowed. It does not bypass browser or administrator restrictions on those capabilities.
+
+## cdpHelper plugin for Codex and Claude Code
+
+The plugin distribution entry is [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper), on its `main` branch. ModCDP maintains source, builds, and tests, and includes that distribution repository as the `cdpHelper/` Git submodule. The relationship is one-way: cdpHelper does not include ModCDP or a source submodule. Its root holds `.agents/plugins/marketplace.json` and `.claude-plugin/marketplace.json`; `plugins/cdphelper/` holds the compiled plugin and production dependencies. ModCDP's root is not an installable marketplace. Install the plugin from that marketplace and obtain its matching extension from cdpHelper Releases; browser compatibility and isolated-mode limits are described below.
+
+Maintainers can inspect the pinned marketplace locally under `cdpHelper/`. After the pinned distribution commit is available remotely, initialize a fresh checkout with `git submodule update --init -- cdpHelper`; plugin users install directly from cdpHelper and do not need this source checkout. Build a clean source commit first, commit its verified artifacts in cdpHelper, then update the parent gitlink. Artifact metadata records the source build commit, which may precede the parent's later gitlink update; do not rebuild just to make those commit IDs equal.
+
+ModCDP owns every release input, including `plugin/skills/cdphelper/`, the runtime, and manifest generation. Generated files in cdpHelper must not be edited manually. `pnpm run build:plugin` creates a complete local candidate without requiring the submodule. To deliver from a clean source commit into an initialized, clean submodule, run `pnpm run deliver:plugin`. It builds and validates a release candidate, backs up the managed files, and updates only `.agents/plugins/marketplace.json`, `.claude-plugin/marketplace.json`, and `plugins/cdphelper/`; failures restore the managed files. The command preserves the child README and Git data, reports provenance and file changes, and does not commit or push. The extension ZIP remains a separate Release asset.
+
+The [extension release workflow](.github/workflows/release-extension.yml) runs after a version PR merges into `main`. It pins distribution commit B from the parent gitlink, builds and verifies the extension from source commit A recorded by that plugin, then creates the version tag in cdpHelper and publishes the extension ZIP, `release-manifest.json`, and `SHA256SUMS`. The manifest references B's actual plugin checksum instead of replacing B with a plugin rebuilt on another platform. Chinese release notes group source commits since the previous published version and include version, provenance, and installation instructions. The first release explicitly lists only recent relevant commits.
+
+Before enabling it, add **CDPHELPER_RELEASE_TOKEN** under **ModCDP → Settings → Secrets and variables → Actions**: a fine-grained token selecting only cdpHelper with **Contents: Read and write**. Both repositories must already expose source A, distribution B, and `main` remotely. For later releases, bump `plugin/version.json`, commit the source and run `deliver:plugin`, commit and push the distribution, then merge the parent gitlink PR into `main` using a merge commit to preserve source A's SHA. An already published identical candidate is skipped; changed candidates require a new version. Use the **Release cdpHelper extension** Actions workflow on `main` to retry. Only a matching draft is resumed; a changed changelog baseline or a newer published version blocks publication.
+
+Users need Node ≥22 and Snow Browser; no npm/pnpm install, local build, or Chromium download is required. Download the separate `cdphelper-extension-v<version>.zip` asset from the matching `v<version>` tag in [cdpHelper Releases](https://github.com/itMrBoy/cdpHelper/releases). Users download and unpack it, then manually load the `extension/` subdirectory containing `manifest.json` in each target profile; the ZIP root is not loadable. The plugin does not accept extension directories, download/copy extension resources, or write connection configuration into a shared extension folder. Profile identity lives in extension storage.
+
+Production runtime files and dependencies travel as the checked `runtime.pack.gz` build artifact. The launcher uses Node to unpack verified files into the user's local runtime cache, without npm or network access. Neither repository tracks an expanded `node_modules/` directory; dependency license files remain inside the runtime package.
+
+Each session first calls `browser_status`, displays the registered instances with names, short IDs and states, and asks a single question offering those instances plus a new isolated Snow instance. Do not ask a generic mode question before listing the inventory. Ordinary profiles register through `127.0.0.1:29393/bridge`. For reuse, `browser_status` shows an inventory with short numbers; after the user chooses, the skill passes that instance's UUID to `browser_select({mode:"reuse", instance_id:"<UUID>"})`. Isolated mode uses `browser_select({mode:"isolated"})` to request a separate profile and associate the extension using a one-time startup URL. The URL proves the requested launch, not that Snow kept a separate profile: Snow may exit the new process or open the URL in an existing window. Before accepting an owned connection and before each owned page operation, the broker verifies a live process with the exact owned profile and executable; failure detaches the connection and sends no page operation. This verification currently exists only on Windows. Other platforms fail closed for isolated mode; reuse is unaffected. Real Snow isolated-mode acceptance is not complete. Both modes use Playwright through the bridge; Computer Use may only launch Snow.
+
+Different tabs can run concurrently, with one owner per tab. Disconnects invalidate old references: users explicitly select again before tabs are rediscovered and bound, without automatic rebind or side-effect replay. Before leaving an isolated instance, ask whether to close and clean its profile; absent consent, retain it. Reused browsers and their tabs remain open. See [installation and connection](plugin/skills/cdphelper/references/setup.md). Plugin-format validation and runtime tests do not establish upstream redistribution authorization.
 
 ## Use the JS SDK
 
@@ -151,17 +172,15 @@ console.log(created);
 
 ## Run the demos
 
-Each demo launches a compatible browser with the fixed ModCDP extension artifact loaded, headful on macOS and `--headless=new` on Linux, then exercises raw CDP, `Mod.evaluate`, `Custom.*` commands, custom events, middleware, and latency reporting in the chosen mode. When stdin is a TTY, the demo leaves you in the same mini REPL/TUI across JS, Python, and Go.
+Each demo launches a compatible browser with the fixed ModCDP extension artifact loaded, headful on macOS and `--headless=new` on Linux, then exercises raw CDP, `Mod.evaluate`, `Custom.*` commands, custom events, middleware, and latency reporting in the chosen mode. When stdin is a TTY, the demo leaves you in a mini REPL/TUI.
 
 ```sh
 pnpm run demo:js                    # defaults to --loopback --upstream=ws
 pnpm run demo:js -- --debugger --upstream=pipe
 pnpm run demo:js -- --loopback --upstream=reversews
-pnpm run demo:python
-pnpm run demo:go
 ```
 
-The Python package is managed with `uv`; `pnpm run demo:python` runs the built demo through `uv` and does not require a separate `pip install`. Set `CHROME_PATH=/path/to/chromium` to force a specific browser binary. Native messaging mode requires the browser to launch the configured native host; it is not a standalone shell demo mode.
+Set `CHROME_PATH=/path/to/chromium` to force a specific browser binary. Native messaging mode requires the browser to launch the configured native host; it is not a standalone shell demo mode.
 
 ## Transparent Proxy
 
@@ -261,16 +280,16 @@ Use the existing context; creating isolated browser contexts is unsupported in t
 
 ### Connection checks and troubleshooting
 
-| Symptom | Check or action |
-| --- | --- |
-| Proxy listening, but no pages or connection waits | `http://127.0.0.1:9223/json/version` only proves the proxy listener is up. `/json` and `/json/list` also advertise a proxy browser endpoint, not actual page targets. Confirm the extension service worker connects to `ws://127.0.0.1:29292`; then run the Playwright verification command above against an already open ordinary page. |
-| Port already in use | Stop the other shortcut or the known process using the port. Both shortcuts use 9223; existing-browser mode also needs 29292. |
-| Reverse connection refused repeatedly | Start `proxy-existing`, or disable/rebuild and reload the reverse-enabled extension when that proxy is no longer needed. Default builds have ReverseWS off. |
-| Changes have no effect | Check the extension's source directory, restart the shortcut to rebuild, then reload that exact `dist/extension`. Running a normal build later disables ReverseWS again. |
-| A second client is rejected | Existing-browser mode supports one CDP client at a time. Release the first connection before reconnecting. |
-| Unsupported browser command or initialization error | Use Playwright ≥ 1.60 with `noDefaults: true`. The adapter cannot supply every native browser operation, isolated context, internal page, or incognito target. |
-| No debugger attachment | Confirm extension installation, `chrome.debugger` permissions, and browser policy allow it; close conflicting debugging sessions if needed. |
-| Screenshot differs while the page is in the background | Retry with the target tab in the foreground and compare. Capture depends on browser visibility/rendering behavior; background capture behavior is not a universal guarantee. |
+| Symptom                                                | Check or action                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Proxy listening, but no pages or connection waits      | `http://127.0.0.1:9223/json/version` only proves the proxy listener is up. `/json` and `/json/list` also advertise a proxy browser endpoint, not actual page targets. Confirm the extension service worker connects to `ws://127.0.0.1:29292`; then run the Playwright verification command above against an already open ordinary page. |
+| Port already in use                                    | Stop the other shortcut or the known process using the port. Both shortcuts use 9223; existing-browser mode also needs 29292.                                                                                                                                                                                                            |
+| Reverse connection refused repeatedly                  | Start `proxy-existing`, or disable/rebuild and reload the reverse-enabled extension when that proxy is no longer needed. Default builds have ReverseWS off.                                                                                                                                                                              |
+| Changes have no effect                                 | Check the extension's source directory, restart the shortcut to rebuild, then reload that exact `dist/extension`. Running a normal build later disables ReverseWS again.                                                                                                                                                                 |
+| A second client is rejected                            | Existing-browser mode supports one CDP client at a time. Release the first connection before reconnecting.                                                                                                                                                                                                                               |
+| Unsupported browser command or initialization error    | Use Playwright ≥ 1.60 with `noDefaults: true`. The adapter cannot supply every native browser operation, isolated context, internal page, or incognito target.                                                                                                                                                                           |
+| No debugger attachment                                 | Confirm extension installation, `chrome.debugger` permissions, and browser policy allow it; close conflicting debugging sessions if needed.                                                                                                                                                                                              |
+| Screenshot differs while the page is in the background | Retry with the target tab in the foreground and compare. Capture depends on browser visibility/rendering behavior; background capture behavior is not a universal guarantee.                                                                                                                                                             |
 
 ## Routing modes
 
@@ -304,31 +323,15 @@ js/                       TypeScript client/server/proxy package
     types/
   examples/
   test/
-python/                   Python package, examples, and tests
-  modcdp/
-    client/
-    launcher/
-    injector/
-    transport/
-    router/
-    translate/
-    types/
-go/                       Go module, examples, and tests
-  modcdp/
-    client/
-    launcher/
-    injector/
-    transport/
-    router/
-    translate/
-    types/
-dist/                     Built JS output used by the extension and Node CLI scripts
+plugin/                   Local MCP runtime, launcher, and acceptance tests
+plugin/skills/cdphelper/      Shared Codex / Claude Code skill source
+dist/                     Built JS, extension, ZIP, and plugin-marketplace artifacts
 ```
 
 ## Requirements
 
 - **Required for the current Node proxy:** Node ≥ 22, pnpm 10.33.2, and a compatible browser with the required MV3 extension APIs (manifest minimum engine version 116; child iframe sessions need ≥ 125). Existing-browser mode requires extension installation and usable `chrome.debugger` permissions; a public native CDP endpoint is not required.
-- **Optional SDK runtimes:** Python ≥ 3.11 (`uv` installs the demo's dependencies, including `websocket-client`) or Go ≥ 1.25 (dependencies include `gobwas/ws`). They are not prerequisites for the Node proxy.
+- **Plugin users:** Node ≥ 22 and an installed Snow Browser with extension/debugger permissions. The plugin bundles runtime dependencies and requires manual extension loading in the selected profile.
 - **Local-launch mode:** a browser build that supports `--load-extension=<path>`. Set `CHROME_PATH` to the executable if automatic discovery selects an unsuitable build. Loading via `Extensions.loadUnpacked` is only possible when the connected browser exposes that CDP domain.
 - **Direct/loopback mode:** an accessible native CDP endpoint and the extension installed in the same profile. Where supported, `chrome://inspect/#remote-debugging` can expose the current browser; this is optional and separate from existing-browser ReverseWS mode.
 
@@ -402,7 +405,7 @@ const server_router_routes = { "Mod.*": "service_worker", "Custom.*": "service_w
 - **`loopback_cdp`** (server only) — SW dials a CDP websocket reachable from the browser. You may pass `http://host:port` as shorthand, but it is resolved to the concrete `ws://.../devtools/...` URL at configuration time. Useful for `Browser.*` commands that `chrome.debugger` doesn't support.
 - **`chromedebugger`** (server only) — `chrome.debugger.sendCommand` against `params.debuggee || { tabId, targetId, extensionId }`, defaulting to the active last-focused tab.
 
-Route resolution is **deterministic across all three language clients**: exact-method match → longest-prefix wildcard → `*.*` fallback. This avoids map-iteration nondeterminism (Go) and key-insertion-order shadowing (JS/Python).
+Route resolution is **deterministic**: exact-method match → longest-prefix wildcard → `*.*` fallback. This prevents key insertion order from shadowing a more specific route.
 
 When server-side `auto` routing tries loopback CDP discovery, the SW only trusts `127.0.0.1:9222` after verifying a per-connection `server_config.server_browser_token` against its own service-worker target. It will not accidentally route loopback commands through a different browser that happens to have the same extension installed.
 
@@ -597,10 +600,10 @@ Custom roundtrip overhead is dominated by `Runtime.evaluate` + the SW's loopback
 
 Historical local extension-loading probe; these version-specific results are not a guarantee for other builds:
 
-| Browser | Version | `--load-extension=<dist/extension>` | `Extensions.loadUnpacked` |
-| --- | --- | --- | --- |
-| Development-channel build | `150.0.7859.0` | no ModCDP service worker target appeared | returned `mdedooklbnfejodmnhmkdpkaedafkehf`; service worker target appeared |
-| Playwright-managed testing build | `148.0.7778.96` | service worker target appeared | `Method not available.` |
+| Browser                          | Version         | `--load-extension=<dist/extension>`      | `Extensions.loadUnpacked`                                                   |
+| -------------------------------- | --------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
+| Development-channel build        | `150.0.7859.0`  | no ModCDP service worker target appeared | returned `mdedooklbnfejodmnhmkdpkaedafkehf`; service worker target appeared |
+| Playwright-managed testing build | `148.0.7778.96` | service worker target appeared           | `Method not available.`                                                     |
 
 Practical guidance:
 
@@ -622,16 +625,16 @@ The launched-browser rows used an isolated temporary user data dir. The live/def
 
 Minimum viable macOS CLI args:
 
-| Mode                  | Browsers                          | Args                                                                                                                                   |
-| --------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `--direct` headful    | probed builds                         | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> chrome://newtab/`                                                       |
-| `--direct` headless   | probed builds                         | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> chrome://newtab/`                                        |
-| `--loopback` headful  | probed builds                         | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> --remote-allow-origins=* chrome://newtab/`                              |
-| `--loopback` headless | probed builds                         | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> --remote-allow-origins=* chrome://newtab/`               |
-| `--debugger` headful  | development build 150                        | `--remote-debugging-port=<port> --user-data-dir=<temp-profile>` plus `Extensions.loadUnpacked {path:"<repo>/dist/extension"}`          |
-| `--debugger` headless | development build 150                        | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile>` plus `Extensions.loadUnpacked {path:"<repo>/dist/extension"}` |
-| `--debugger` headful  | testing build 148            | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> --load-extension=<repo>/dist/extension chrome://newtab/`                |
-| `--debugger` headless | testing build 148            | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> --load-extension=<repo>/dist/extension chrome://newtab/` |
+| Mode                  | Browsers              | Args                                                                                                                                         |
+| --------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--direct` headful    | probed builds         | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> chrome://newtab/`                                                             |
+| `--direct` headless   | probed builds         | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> chrome://newtab/`                                              |
+| `--loopback` headful  | probed builds         | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> --remote-allow-origins=* chrome://newtab/`                                    |
+| `--loopback` headless | probed builds         | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> --remote-allow-origins=* chrome://newtab/`                     |
+| `--debugger` headful  | development build 150 | `--remote-debugging-port=<port> --user-data-dir=<temp-profile>` plus `Extensions.loadUnpacked {path:"<repo>/dist/extension"}`                |
+| `--debugger` headless | development build 150 | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile>` plus `Extensions.loadUnpacked {path:"<repo>/dist/extension"}` |
+| `--debugger` headful  | testing build 148     | `--remote-debugging-port=<port> --user-data-dir=<temp-profile> --load-extension=<repo>/dist/extension chrome://newtab/`                      |
+| `--debugger` headless | testing build 148     | `--headless=new --remote-debugging-port=<port> --user-data-dir=<temp-profile> --load-extension=<repo>/dist/extension chrome://newtab/`       |
 
 Recommended full macOS launch args:
 

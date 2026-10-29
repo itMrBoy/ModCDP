@@ -5,13 +5,14 @@ repos:
         name: oxfmt
         entry: pnpm exec oxfmt
         language: system
-        files: \.(js|ts|json|ya?ml)$
+        files: \.(m?js|ts|json|ya?ml)$
+        require_serial: true
         exclude: ^js/src/types/generated/(aliases|cdp|zod)\.ts$|^js/src/types/generated/zod/
       - id: oxlint
         name: oxlint
         entry: pnpm exec oxlint --format=stylish --disable-nested-config --tsconfig tsconfig.json
         language: system
-        files: \.(js|ts|json)$
+        files: \.(m?js|ts|json)$
         exclude: ^js/src/types/generated/(cdp|zod)\.ts$
         pass_filenames: false
       - id: tsc
@@ -34,29 +35,6 @@ repos:
       #  pass_filenames: false
       #  always_run: false
       #  require_serial: true
-      - id: ty-check
-        name: ty-check
-        entry: uv --directory python run ty check
-        language: system
-        files: ^python/
-        pass_filenames: false
-      - id: pyright
-        name: pyright
-        entry: uv --directory python run pyright
-        language: system
-        files: ^python/
-        pass_filenames: false
-      - id: go-fmt
-        name: go-fmt
-        entry: gofmt -w
-        language: system
-        files: ^go/.*\.go$
-      - id: go-build
-        name: go-build
-        entry: bash -c 'cd go && go build ./...'
-        language: system
-        files: ^go/
-        pass_filenames: false
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -77,5 +55,6 @@ repos:
       - id: detect-private-key
       - id: debug-statements
       - id: forbid-submodules
+        exclude: ^cdpHelper$
       - id: check-added-large-files
         args: ["--maxkb=600"]

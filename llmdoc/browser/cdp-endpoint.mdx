@@ -34,6 +34,8 @@ Node 代理将普通 CDP WebSocket 与共享扩展服务连接，浏览器 adapt
 
 HTTP discovery 返回的是代理合成的 browser endpoint，不是真实页面列表。`/json/version` 成功只证明监听可用；扩展连接、配置握手和目标操作仍可能失败。
 
+程序化代理可选择配置 `proxy_client_token`，对 HTTP 与 WebSocket 升级请求校验 token 并拒绝网页 Origin。独立代理默认行为保持兼容；cdpHelper 插件必须设置此凭据，并由 Broker 用返回的带 token WebSocket 地址连接 Playwright，避免其他本机客户端绕过插件会话占用。
+
 ## 保持线序而不是重新调度
 
 持久桥接给前端请求分配独立的负 ID，代理内部请求使用自己的 ID 空间，收到响应后还原前端 ID。响应和事件按 upstream 接收顺序转发；不能把响应改为等待 typed `send()`、同时同步转发事件，否则 Runtime 事件可能越过 frame-tree 响应，使客户端丢失 execution context。
@@ -52,6 +54,8 @@ HTTP discovery 返回的是代理合成的 browser endpoint，不是真实页面
 
 ## 客户端与验收边界
 
-Playwright 的 `connectOverCDP` 使用 `noDefaults: true`，避免默认初始化依赖本入口没有的 browser-level 能力。优先复用默认 context；创建隔离 context 需要原生浏览器 CDP。版本信息只能从当前环境取得，扩展无法获得的 revision 和运行时版本保持未知，不能借用其他安装的浏览器值。
+Playwright 的 `connectOverCDP` 使用 `noDefaults: true`，避免默认初始化依赖本入口没有的 browser-level 能力。优先复用默认 context；此入口不提供 Playwright 隔离 context。cdpHelper 插件的 isolated 模式请求启动独立 profile，以一次性 URL 关联手动加载的 Release 扩展；URL 不证明真实隔离，是否存在匹配 profile 的进程须由插件运行时核验，当前仅 Windows 实现该核验；它仍使用 bridge，不要求原生 CDP 端口开放。多 profile 统一登记入口不是多个 CDP 客户端直接共享代理的授权；插件会话和 tab 独占由 `connection/cdphelper-plugin-runtime.mdx` 维护，不改变代理单前端限制。
+
+版本信息只能从当前环境取得，扩展无法获得的 revision 和运行时版本保持未知，不能借用其他安装的浏览器值。
 
 验收应依次越过监听、ReverseWS peer、扩展配置、普通页面 evaluate/DOM 和所需的截图或性能采集边界。某个已验证客户端操作不代表其他 CDP 工具和所有命令都兼容。已有浏览器的真实验收与独立测试浏览器回归必须分别报告，不能互相代替。

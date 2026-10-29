@@ -1,6 +1,7 @@
 {
   "name": "modcdp",
   "version": "0.0.19",
+  "private": true,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/browserbase/ModCDP.git"
@@ -13,9 +14,7 @@
     "dist/extension.zip",
     "extension/src/**/*.ts",
     "extension/src/pages/**/*",
-    "extension/manifest.json",
-    "python/modcdp/extension.zip",
-    "go/modcdp/injector/extension.zip"
+    "extension/manifest.json"
   ],
   "type": "module",
   "exports": {
@@ -156,18 +155,15 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "build": "pnpm run build:package && pnpm run build:extension-assets && pnpm run build:python-readme",
+    "build": "pnpm run build:package && pnpm run build:extension-assets",
     "build:clean": "pnpm run clean && pnpm run build",
     "build:package": "tsc -p tsconfig.json && node -e \"const fs = require('node:fs'); fs.rmSync('dist/js/test', { recursive: true, force: true }); fs.rmSync('dist/.gitignore', { force: true })\"",
     "build:extension-assets": "node js/scripts/build-extension-assets.mjs",
-    "build:python-readme": "node -e \"if (!require('node:fs').statSync('python/README.md').isFile()) process.exit(1)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "pnpm exec prek run --all-files",
     "format": "pnpm exec prek run oxfmt --all-files",
     "format:check": "oxfmt --check .",
     "demo:js": "pnpm run build && node dist/js/examples/demo.js",
-    "demo:python": "pnpm run build && cd python && uv run python examples/demo.py",
-    "demo:go": "pnpm run build && cd go && go run ./examples/demo",
     "demo:proxy:playwright": "pnpm run build && node dist/js/examples/playwright.js",
     "demo:proxy:puppeteer": "pnpm run build && node dist/js/examples/puppeteer.js",
     "proxy": "pnpm run build && node dist/js/src/proxy/cli.js",
@@ -175,11 +171,15 @@
     "proxy-existing": "pnpm run build && pnpm run build:extension-assets -- --enable-reversews && node dist/js/src/proxy/cli.js --launcher-mode=none --upstream-mode=reversews --upstream-reversews-bind=127.0.0.1:29292 --injector-mode=none --port=9223",
     "test": "pnpm run build && vitest run --fileParallelism=false --maxWorkers=1",
     "test:launchers": "vitest run js/test/test.LocalBrowserLauncher.ts js/test/test.RemoteBrowserLauncher.ts js/test/test.BBBrowserLauncher.ts",
-    "pack:npm": "pnpm run build && npm pack --ignore-scripts",
-    "prepare": "pnpm run build"
+    "prepare": "pnpm run build",
+    "build:plugin": "node js/scripts/build-plugin.mjs",
+    "deliver:plugin": "node js/scripts/deliver-plugin.mjs",
+    "test:plugin": "node --test plugin/test/*.test.mjs"
   },
   "dependencies": {
-    "zod": "^4.4.1"
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "playwright-core": "1.60.0",
+    "zod": "4.4.1"
   },
   "devDependencies": {
     "@eplightning/nats-server": "^2.12.5",
@@ -196,7 +196,7 @@
     "vitest": "^4.1.5"
   },
   "optionalDependencies": {
-    "ws": "^8.18.0"
+    "ws": "8.18.3"
   },
   "engines": {
     "node": ">=22"
