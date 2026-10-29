@@ -21,7 +21,7 @@ jobs:
       github.repository == 'itMrBoy/ModCDP' &&
       ((github.event_name == 'pull_request_target' && github.event.pull_request.merged == true) ||
        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       version: ${{ steps.metadata.outputs.version }}
@@ -107,7 +107,7 @@ jobs:
 
   publish:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
