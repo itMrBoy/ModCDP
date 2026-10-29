@@ -1,6 +1,6 @@
 ---
 description: >-
-  Codex 与 Claude Code cdpHelper 插件的本地 Broker、多会话独占 tab、reuse/isolated 显式选择、扩展 bridge
+  Codex 与 Claude Code cdpHelper 插件的本地 Broker、先列出现有实例再选择或启动隔离实例、多会话独占 tab、扩展 bridge
   与断线保留及确认清理边界。
 kind: architecture
 code:
@@ -11,6 +11,7 @@ code:
     - plugin/src/broker.mjs
     - plugin/src/bridge.mjs
     - plugin/test/bridge.test.mjs
+    - plugin/test/browser.test.mjs
     - plugin/src/isolated.mjs
     - plugin/src/tools.mjs
     - plugin/skills/cdphelper/SKILL.md
