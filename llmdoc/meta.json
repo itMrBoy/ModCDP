@@ -9,16 +9,16 @@
       "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "browser/worker-lifecycle.mdx": {
-      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
+      "validatedRevision": "ebe3fd3d7877bca70b54a3912e59e1f325846a67"
     },
     "connection/browser-lifecycle.mdx": {
       "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "connection/transports.mdx": {
-      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
+      "validatedRevision": "ebe3fd3d7877bca70b54a3912e59e1f325846a67"
     },
     "development/build-and-validation.mdx": {
-      "validatedRevision": "db157685ec03688242558ee1e9042a63309dafe0"
+      "validatedRevision": "ebe3fd3d7877bca70b54a3912e59e1f325846a67"
     },
     "development/sdk-parity.mdx": {
       "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
@@ -30,7 +30,7 @@
       "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "connection/cdphelper-plugin-runtime.mdx": {
-      "validatedRevision": "db157685ec03688242558ee1e9042a63309dafe0"
+      "validatedRevision": "ebe3fd3d7877bca70b54a3912e59e1f325846a67"
     }
   },
   "convergence": {
