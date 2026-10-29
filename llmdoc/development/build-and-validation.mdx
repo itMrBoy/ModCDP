@@ -1,7 +1,7 @@
 ---
 description: >-
-  JS SDK 与扩展构建、ReverseWS 开关、cdpHelper 子模块单向产物交付、备份回滚及独立 Release
-  扩展分发边界；区分自动检查与真实宿主、雪诺验收。
+  JS SDK 与扩展构建、cdpHelper 子模块单向产物交付、备份回滚、合并 PR 后的扩展 Release
+  与中文源码差异说明；区分自动检查与真实宿主、雪诺验收。
 kind: guide
 code:
   paths:
@@ -11,6 +11,8 @@ code:
     - js/scripts/build-extension-assets.mjs
     - js/scripts/build-plugin.mjs
     - js/scripts/deliver-plugin.mjs
+    - js/scripts/release-extension.mjs
+    - js/scripts/release-notes.mjs
     - plugin/version.json
     - plugin/release/README.md
     - plugin/release/README.zh-CN.md
@@ -20,8 +22,11 @@ code:
     - README.zh-CN.md
     - plugin/test/runtime.test.mjs
     - plugin/test/delivery.test.mjs
+    - plugin/test/release-extension.test.mjs
+    - plugin/test/release-notes.test.mjs
     - .pre-commit-config.yaml
     - .github/workflows/test.yml
+    - .github/workflows/release-extension.yml
     - .github/workflows/lint.yml
 relations:
   related:
@@ -63,6 +68,18 @@ Git 不跟踪展开的 node_modules，检查范围同时覆盖候选工作树、
 父仓的格式化、检查与构建工具不得递归改写子模块内已校验的产物或其生产依赖；子模块内容由分发仓独立维护、提交和核验。不能用修改父仓忽略规则来替代检查子模块本身的 Git 状态。
 
 构建器从 plugin/skills/cdphelper 生成插件技能，以 --cdphelper-plugin 编译配套扩展；扩展 ZIP 命名为 cdphelper-extension-v版本号.zip，构建来源记录在扩展内的 cdphelper-bridge.json。版本与摘要以构建元数据为准。改名不更换扩展公钥或 ID，也不改变 bridge 协议；插件和配套扩展仍须按构建版本匹配。技能目录的兼容 runner 仅供源码开发，不进入安装产物，也不替代插件的多实例会话管理。
+
+## 合并后的扩展 Release
+
+发布流水线只在主仓 PR 已合并到 main 后处理其合并提交，或由 main 手动重试；未合并 PR 不执行发布构建。虽然事件使用 pull_request_target，构建前仍校验被检出提交属于 main。准备阶段只有只读权限；写入凭据只给独立发布 job，通过 CDPHELPER_RELEASE_TOKEN 授予 cdpHelper 仓库 Contents 读写，不给构建源码阶段。
+
+流水线从触发提交锁定的 gitlink 取得分发 B，再由 B 的 artifact 取得真实来源 A；B 必须已合入 cdpHelper main，A 必须属于已评审的 ModCDP main 历史，再构建扩展并运行 CI 浏览器 fixture 测试。Release 清单结合本次扩展附件和 B 已提交的原始市场摘要、插件摘要与 runtime digest；不能把 Linux 重建的插件字节冒充先前构建平台的 B。它不自动提交或推送源码、分发仓或 gitlink，新增版本仍须先走 A→B→C 交付。
+
+正式扩展 Release 使用与插件一致的稳定版本 tag，首次目标为 B；附件仅含独立扩展 ZIP、release-manifest.json 和 SHA256SUMS，不把扩展放入插件。先创建 draft 并上传完整附件，再正式发布。已发布同版内容一致且 tag 仍匹配其清单记录的原分发提交时跳过，不因后续 README 等维护提交将旧 tag 追平新 B；内容冲突须升版本。只恢复可确认属于当前候选的 draft。构建期间上一版基线变化或已有更高版本时停止并重跑，不能覆盖其他候选或让 Latest 倒退。
+
+整条准备与发布流水线共用仓库级串行队列，不按版本并行，以免候选抢占基线或让 Latest 倒退；仍须在发布前校验外部手工发布造成的基线变化。上一版只取已发布稳定版本，排除 draft 和 prerelease；同 tag 已公开为 prerelease 时拒绝覆盖成稳定版。
+
+中文更新说明取上一较低、已发布稳定版本清单中的 source_commit，与本版 A 比较相关非合并提交，按 Conventional Commit 分类并提供源码差异及安装说明。首发没有旧源码基线时只列最近相关提交并明确非完整历史；不能用父仓指针提交或构建日志替代用户版本变化。配置流水线不等于已经配置凭据或执行远端发布；CI fixture 成功也不等于真实雪诺验收。
 
 ## 验证到所需责任边界
 

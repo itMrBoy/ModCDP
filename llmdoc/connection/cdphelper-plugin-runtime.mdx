@@ -10,6 +10,7 @@ code:
     - plugin/src/service.mjs
     - plugin/src/broker.mjs
     - plugin/src/bridge.mjs
+    - plugin/test/bridge.test.mjs
     - plugin/src/isolated.mjs
     - plugin/src/tools.mjs
     - plugin/skills/cdphelper/SKILL.md
@@ -66,6 +67,8 @@ pending 提供 launch_process_running 与 waiting_for_extension/launch_exited_un
 扩展失联、页面关闭或切换实例后，旧 tab 引用失效；重连不自动恢复归属，也不自动 rebind。重新读取 inventory，由用户明确选择实例，再发现和绑定页面。超时或断线不能触发有副作用操作的自动重放，必须先核对实际结果。
 
 客户端退出、心跳失联或后台空闲回收只释放会话、连接及服务资源，不自动关闭用户窗口或删除隔离 profile。保留记录不证明浏览器仍存活，也不表示已获下次清理同意。stdio 入口收到 EOF、SIGINT 或 SIGTERM 时，先释放会话，再关闭 MCP server/transport，让事件循环自然退出，避免 Windows Node 尚在关闭句柄时强制 process.exit；错误写标准错误和退出码。
+
+Bridge 关闭先停止接入并解除自有连接，再回收本服务的 HTTP 连接；不能等待浏览器初始化页或预连接补齐请求头后才退出，也不因此关闭浏览器或标签页。
 
 离开 isolated 实例前必须询问是否关闭并清理；仅有用户明确同意才执行。清理先核验目录边界和 owner marker，再核对实际进程身份，确认退出后才删除。Windows 先请求关闭窗口，必要时只停止再次核验匹配的自有进程，不直接终止记忆中的 PID。其他平台仍在运行时提示手动关闭后重试。核验使用有超时上限的异步进程调用，不阻塞 Broker 心跳及其他会话。
 
