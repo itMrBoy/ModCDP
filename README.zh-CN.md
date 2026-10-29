@@ -83,7 +83,7 @@ NATS 可通过 `--enable-nats` 开启，也可与 `--enable-reversews` 同时传
 
 ## Codex / Claude Code 雪诺浏览器插件
 
-唯一插件市场入口为 [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper) 的 main 分支。本 ModCDP 仓库维护源码、构建和测试，并通过根目录 `cdpHelper/` Git 子模块引入分发仓库；关联只有这一方向，cdpHelper 不再引入 ModCDP 或保存源码子模块。分发仓库根目录放 `.agents/plugins/marketplace.json` 和 `.claude-plugin/marketplace.json`，`plugins/cdphelper/` 放编译后的插件和生产依赖。ModCDP 根目录不能作为插件市场。分发仓库和 Release 尚待发布及完整验收，当前不能宣称用户已可从远端安装。
+唯一插件市场入口为 [itMrBoy/cdpHelper](https://github.com/itMrBoy/cdpHelper) 的 main 分支。本 ModCDP 仓库维护源码、构建和测试，并通过根目录 `cdpHelper/` Git 子模块引入分发仓库；关联只有这一方向，cdpHelper 不再引入 ModCDP 或保存源码子模块。分发仓库根目录放 `.agents/plugins/marketplace.json` 和 `.claude-plugin/marketplace.json`，`plugins/cdphelper/` 放编译后的插件和生产依赖。ModCDP 根目录不能作为插件市场。插件从该市场安装，配套扩展从 cdpHelper Release 下载；浏览器兼容性及隔离模式限制见下文。
 
 维护者可在当前检出的 `cdpHelper/` 下查看固定版本的市场和产物。远端具备所锁定提交后，新检出可执行 `git submodule update --init -- cdpHelper`；插件用户直接使用 cdpHelper，无需克隆源码仓库。维护顺序为：先提交干净源码并构建，再将已核验产物提交到 cdpHelper，最后更新 ModCDP 的子模块指针。产物元数据记录实际构建源码提交，它可以早于父仓后续的指针提交，不为使两者 SHA 相等而循环重建。
 
@@ -91,9 +91,9 @@ NATS 可通过 `--enable-nats` 开启，也可与 `--enable-reversews` 同时传
 
 扩展发布 CI 位于 [release-extension.yml](.github/workflows/release-extension.yml)。版本更新 PR 合并到 `main` 后，它锁定父仓所引用的分发提交 B，按插件元数据中的源码提交 A 构建和验证扩展，在 cdpHelper 自动创建 `v<版本>` tag 并正式发布三个附件：扩展 ZIP、`release-manifest.json` 和 `SHA256SUMS`。发布清单引用 B 中的真实插件摘要，不用其他平台重建的插件替换 B。发布说明自动按上一已发布版本到 A 的源码提交生成中文分类列表，附版本、来源及安装说明；首次发布只列出最近相关提交，不宣称覆盖全部历史。
 
-启用前，在 **ModCDP → Settings → Secrets and variables → Actions** 配置 `CDPHELPER_RELEASE_TOKEN`：fine-grained token 仅选择 cdpHelper，授予 **Contents: Read and write**。两仓须先推送源码 A、分发 B 和 `main`，否则无法取得固定提交。本轮仅配置工作流，未设置 secret、推送或执行发布。后续先更新 `plugin/version.json`、完成源码提交和 `deliver:plugin`、提交并推送子仓产物，再将父仓指针 PR 合并到 `main`。已发布同版本且候选一致时跳过；候选变化必须升级版本，不能覆盖已发布附件。失败重试可在 Actions 的 **Release cdpHelper extension** 手动运行；只恢复属于同一候选的草稿，发布基线发生变化或已有更高版本时拒绝发布并提示处理。
+启用前，在 **ModCDP → Settings → Secrets and variables → Actions** 配置 `CDPHELPER_RELEASE_TOKEN`：fine-grained token 仅选择 cdpHelper，授予 **Contents: Read and write**。两仓须先推送源码 A、分发 B 和 `main`，否则无法取得固定提交。后续先更新 `plugin/version.json`、完成源码提交和 `deliver:plugin`、提交并推送子仓产物，再以 merge commit 将父仓指针 PR 合并到 `main`，保留来源 A 的原始 SHA。已发布同版本且候选一致时跳过；候选变化必须升级版本，不能覆盖已发布附件。失败重试可在 Actions 的 **Release cdpHelper extension** 手动运行；只恢复属于同一候选的草稿，发布基线发生变化或已有更高版本时拒绝发布并提示处理。
 
-用户只需 Node ≥22 和已安装的雪诺，无需 npm/pnpm install、本地构建或下载 Chromium。扩展由用户自行下载独立 Release ZIP，解压后在每个目标 profile 手动加载其中含 `manifest.json` 的 `extension/` 子目录（不是 ZIP 根目录）；计划附件为 tag `v0.1.1` 下的 `cdphelper-extension-v0.1.1.zip`，目前尚未发布。插件不接收扩展目录、不下载或复制扩展、不改写公共扩展目录；每个 profile 的身份和连接配置存在扩展自己的 storage 中。
+用户只需 Node ≥22 和已安装的雪诺，无需 npm/pnpm install、本地构建或下载 Chromium。扩展由用户自行下载独立 Release ZIP，解压后在每个目标 profile 手动加载其中含 `manifest.json` 的 `extension/` 子目录（不是 ZIP 根目录）；从 [cdpHelper Releases](https://github.com/itMrBoy/cdpHelper/releases) 的对应 `v<版本号>` tag 获取 `cdphelper-extension-v<版本号>.zip`。插件不接收扩展目录、不下载或复制扩展、不改写公共扩展目录；每个 profile 的身份和连接配置存在扩展自己的 storage 中。
 
 生产运行时和依赖以经过校验的 `runtime.pack.gz` 构建产物交付；启动器使用 Node 将已校验文件释放到用户本机运行时缓存，无需 npm 或网络。两个仓库均不跟踪展开的 `node_modules/` 目录，第三方许可证保留在运行时包内。
 
