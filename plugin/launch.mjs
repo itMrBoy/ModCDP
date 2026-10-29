@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, mkdir, cp, rename, stat } from "node:fs/promises";
+import { readFile, mkdir, copyFile, rename, stat } from "node:fs/promises";
 
 async function verify(root, inventory) {
   for (const [relative, expected] of Object.entries(inventory)) {
@@ -34,6 +34,11 @@ async function main() {
     return;
   }
   const versions = path.join(home, "runtimes");
+  const runtimeFiles = Object.fromEntries(
+    Object.entries(inventory.files)
+      .filter(([file]) => file.startsWith("runtime/"))
+      .map(([file, hash]) => [file.slice(8), hash]),
+  );
   await mkdir(versions, { recursive: true, mode: 0o700 });
   const installed = path.join(versions, `${inventory.version}-${inventory.digest.slice(0, 16)}`);
   try {
@@ -41,7 +46,19 @@ async function main() {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
     const staging = path.join(versions, `.staging-${randomUUID()}`);
-    await cp(path.join(root, "runtime"), staging, { recursive: true });
+    const files = Object.keys(runtimeFiles);
+    const directories = [...new Set(files.map((file) => path.dirname(path.join(staging, file))))];
+    await Promise.all(directories.map((directory) => mkdir(directory, { recursive: true })));
+    // Copy only verified inventory entries, with bounded parallel I/O for Windows cold starts.
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(16, files.length) }, async () => {
+        while (next < files.length) {
+          const file = files[next++];
+          await copyFile(path.join(root, "runtime", file), path.join(staging, file));
+        }
+      }),
+    );
     try {
       await rename(staging, installed);
     } catch (renameError) {
@@ -49,11 +66,6 @@ async function main() {
       await stat(installed);
     }
   }
-  const runtimeFiles = Object.fromEntries(
-    Object.entries(inventory.files)
-      .filter(([file]) => file.startsWith("runtime/"))
-      .map(([file, hash]) => [file.slice(8), hash]),
-  );
   await verify(installed, runtimeFiles);
   await import(pathToFileURL(path.join(installed, "cli.mjs")).href);
 }
