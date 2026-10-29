@@ -40,6 +40,19 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+  .instance-number {
+    display: inline-block;
+    min-width: 44px;
+    min-height: 32px;
+    box-sizing: border-box;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font:
+      700 18px/20px system-ui,
+      sans-serif;
+    text-align: center;
+    vertical-align: middle;
+  }
 </style>
 <button id="refresh">Refresh</button>
 <h1>cdpHelper</h1>
@@ -57,10 +70,17 @@
     <span id="cdphelper-settings-result" role="status"></span>
   </form>
   <p>
-    Load this extension in the browser window you want to control. Match the short instance ID above with the AI
-    session's instance list.
+    Pin cdpHelper to the toolbar and match its number badge with the AI session's instance list. The badge appears once
+    the extension registers, before you select or operate a browser. You can also check the number on this page.
   </p>
-  <p>请在目标浏览器窗口安装此扩展，并通过上方实例短编号与 AI 会话列出的实例对应。</p>
+  <p>
+    请将 cdpHelper 固定到工具栏，用数字徽标与 AI
+    列出的编号对应；未固定时，也可在本页核对。扩展登记成功即显示编号，无需先选择或操作浏览器。
+  </p>
+  <p>
+    编号仅代表当前连接；断线后徽标清空，重连后重新核对编号。同一 profile
+    的多个窗口共用编号，自定义名称相同也可通过编号区分。
+  </p>
   <p>
     <a href="https://github.com/itMrBoy/cdpHelper/releases" target="_blank" rel="noopener noreferrer"
       >Download and installation instructions / 下载与安装说明</a

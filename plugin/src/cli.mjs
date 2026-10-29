@@ -38,7 +38,8 @@ async function main() {
     tools: tools.map((t) => ({
       name: t.name,
       description: t.description,
-      inputSchema: { type: "object", ...z.toJSONSchema(t.schema) },
+      inputSchema: { type: "object", ...z.toJSONSchema(t.listingSchema ?? t.schema) },
+      ...(t.annotations ? { annotations: t.annotations } : {}),
     })),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {

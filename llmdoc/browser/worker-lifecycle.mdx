@@ -1,9 +1,10 @@
 ---
-description: MV3 service worker startup、offscreen keepalive 与扩展重载；ReverseWS/NATS 编译选择为何不属于 Mod.configure，worker 存活与 peer 连接如何区分。
+description: MV3 service worker startup、offscreen keepalive、实例徽标与扩展重载；ReverseWS/NATS 编译选择、显示状态串行更新和连接就绪的边界。
 kind: architecture
 code:
   paths:
     - extension/src/service_worker.ts
+    - extension/src/instanceDisplay.ts
     - extension/src/pages/options.ts
     - extension/src/pages/options.html
     - extension/src/pages/offscreen_keepalive.ts
@@ -12,6 +13,7 @@ code:
     - js/test/test.ExtensionStartup.ts
 relations:
   related:
+    - connection/cdphelper-plugin-runtime.mdx
     - protocol/command-execution.mdx
     - connection/transports.mdx
     - development/build-and-validation.mdx
@@ -40,5 +42,9 @@ ReverseWS 与 NATS 的启用值由资源构建注入；服务器据此决定要�
 ## 配置和可观测性的边界
 
 共享 server 是 `Mod.configure`、命令注册与 middleware 的权威执行者。状态页只是它的消费者；页面展示不能代替协议握手和真实请求成功。生命周期变更应同时检查 entry、server、offscreen 与 manifest，使资源路径、消息/port 名称及权限继续一致。
+
+插件扩展在登记后、页面选择前，将 Broker 返回的显示编号同时用于 action 数字徽标、标题和设置页；编号分配及非路由身份约束由 `connection/cdphelper-plugin-runtime.mdx` 维护。启动和断线时清除旧显示，登记状态写入与徽标、标题更新沿用同一 stateWrite 队列，避免迟到的登记覆盖断线。徽标或标题失败只报告错误，不能阻断登记状态或自有启动 token 的保留；缺少合法编号时显示暂无编号，不从页面标题、URL 或其他身份推导编号。
+
+工具栏徽标、设置页和接管栏共享按编号确定的背景与文字配色。设置页及接管栏用网页内的圆角色块呈现编号；工具栏原生徽标只设置背景与文字颜色，形状由浏览器渲染。断线或编号不可用时移除旧编号色块，不能让旧显示继续代表当前连接。
 
 构建和重载没有跨 worktree 自动同步机制。运维成功条件是预期目录中的新扩展已装载、所选 downstream 已建立 peer，并且实际命令可用；仅有新 ZIP、状态树或监听端口不能满足这些条件。

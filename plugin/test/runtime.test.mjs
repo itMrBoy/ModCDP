@@ -63,7 +63,23 @@ test(
       [a, b] = await Promise.all([client(plugin, home), client(plugin, home)]);
       const definitions = await a.listTools();
       assert.ok(definitions.tools.some((t) => t.name === "browser_select"));
-      assert.ok(!definitions.tools.some((t) => /run_code|evaluate/.test(t.name)));
+      for (const tool of definitions.tools) {
+        assert.equal(tool.inputSchema.type, "object", tool.name);
+        for (const keyword of ["oneOf", "anyOf", "allOf"]) {
+          assert.ok(!(keyword in tool.inputSchema), `${tool.name} has root-level ${keyword}`);
+        }
+      }
+      const selectionSchema = definitions.tools.find((t) => t.name === "browser_select").inputSchema;
+      assert.deepEqual(selectionSchema.properties.mode.enum, ["reuse", "isolated"]);
+      assert.deepEqual(selectionSchema.required, ["mode"]);
+      assert.equal(selectionSchema.properties.instance_id.type, "string");
+      assert.equal(selectionSchema.properties.executable.type, "string");
+      assert.equal(selectionSchema.additionalProperties, false);
+      assert.ok(!definitions.tools.some((t) => /run_code/.test(t.name)));
+      const evaluate = definitions.tools.find((t) => t.name === "browser_evaluate");
+      assert.ok(evaluate);
+      assert.equal(evaluate.annotations.readOnlyHint, false);
+      assert.equal(evaluate.annotations.destructiveHint, true);
       assert.ok(!definitions.tools.some((t) => /configure_extension/.test(t.name)));
       assert.equal((await status(a)).selection_required, true);
       const forbidden = await a.callTool({ name: "browser_tabs", arguments: {} });
@@ -175,7 +191,7 @@ test(
       const packFile = path.join(next, "runtime.pack.gz");
       const packed = JSON.parse(gunzipSync(await readFile(packFile)).toString("utf8"));
       const build = JSON.parse(Buffer.from(packed["build.json"], "base64").toString("utf8"));
-      build.version = "0.1.2";
+      build.version = "9.9.9";
       build.digest = createHash("sha256").update("test runtime upgrade").digest("hex");
       const buildBytes = Buffer.from(JSON.stringify(build));
       packed["build.json"] = buildBytes.toString("base64");
@@ -195,8 +211,8 @@ test(
       old = null;
       upgraded = await client(next, home);
       const meta = JSON.parse(await readFile(path.join(home, "daemon.json"), "utf8"));
-      assert.match(meta.runtime, /^0\.1\.2:/);
-      assert.ok((await readdir(path.join(home, "runtimes"))).some((v) => v.startsWith("0.1.2-")));
+      assert.match(meta.runtime, /^9\.9\.9:/);
+      assert.ok((await readdir(path.join(home, "runtimes"))).some((v) => v.startsWith("9.9.9-")));
     } finally {
       await old?.close();
       await upgraded?.close();

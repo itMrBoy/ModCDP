@@ -8,6 +8,7 @@ code:
     - js/src/server/ChromeDebuggerCDPAdapter.ts
     - js/src/transport/ChromeDebuggerUpstreamTransport.ts
     - js/test/test.ExistingReverseProxy.ts
+    - js/test/test.CDPDiscovery.ts
     - js/scripts/verify-existing-playwright.mjs
 relations:
   requires:
@@ -48,7 +49,13 @@ HTTP discovery 返回的是代理合成的 browser endpoint，不是真实页面
 
 原生 child session 必须与所属 root debuggee 一起使用。OOPIF 缺少 parentFrameId 时需先读取真实 child frame tree 再发布 attached 事件；不能用虚构父 frame 或提前事件填补客户端的 frame graph。
 
+目标刷新必须把快照、附加和差异发布串行处理，避免旧快照撤销较新刷新刚建立的页面会话。chrome.debugger 目标列表在导航期间暂时缺项，不等于普通标签页已经关闭；保留经 tab 身份核对仍存活、仍属于可操作 URL 的已知目标，枚举恢复后复用原有公开会话。真实 tab 删除或原生 debugger detach 仍须使对应会话失效，不能为容忍枚举间隙而保活已关闭页面。
+
 只支持 flattened attach。普通 profile 中可见且可调试的 tab 和引擎允许的子目标可进入此模型；内部页面、隔离 browser context 和任意 browser-scoped 命令不因代理存在而变得可用。未知 session 和不支持的浏览器命令要明确失败，不能伪造成功结果。
+
+同一原生页面可对应多个公开 CDP session，原生调试域状态仍共享，事件按各公开 session 路由。插件的页面提示、性能采样与 Trace 可以复用页级 session，但不能假定它们是隔离的 native debugger，或在私有功能结束时随意发送 Network.disable、Runtime.disable、改写自动附加配置。脱离某个公开 session 也不能解除仍由其他公开 session 使用的根附加。
+
+页面级 Network、Performance、Tracing 等命令经页 session 转发；browser target 只提供有限补齐的能力，不能因为协议类型存在就改从 browser session 调用。Trace 的实际引擎支持、完成事件及 IO 导出必须越过扩展代理验证。浏览器原生扩展 debugger 提示可能全局显示，不可据此推断 Broker 已绑定每个页面；插件自定义接管状态由会话资源所有者维护。
 
 调试附加还区分 owned 与 borrowed。重置优先解除本 adapter 拥有的根附加，以释放暂停子目标；借用的连接只做必要恢复。不要在解除根附加前逐页等待 Runtime 调用，否则失去响应的 renderer 会拖住清理和后续连接。原生层遇到“已被附加”时必须证明当前扩展确实能使用该会话，不能吞掉其他调试器占用错误。
 
