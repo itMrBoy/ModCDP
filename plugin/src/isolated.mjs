@@ -28,7 +28,7 @@ export async function launchIsolated(home, instanceId, executable, startupUrl = 
   const profile = await mkdtemp(path.join(base, "isolated-"));
   const proc = spawn(resolvedExecutable, [`--user-data-dir=${profile}`, "--no-first-run", startupUrl], {
     stdio: "ignore",
-    windowsHide: true,
+    windowsHide: false,
   });
   await new Promise((resolve, reject) => {
     proc.once("spawn", resolve);

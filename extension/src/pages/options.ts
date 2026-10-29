@@ -1,7 +1,7 @@
 // MODCDP_TS_ONLY: DO NOT TRANSLATE THIS FILE TO OTHER LANGUAGES.
 // Reason: only runs in browser.
 
-import { instanceLabel } from "../instanceDisplay.js";
+import { instanceAppearance, instanceDisplayNumber, instanceLabel } from "../instanceDisplay.js";
 type RuntimeJSON = {
   type?: string;
   config?: unknown;
@@ -16,9 +16,24 @@ const snowPlugin = typeof __CDPHELPER_PLUGIN_BRIDGE__ !== "undefined" && __CDPHE
 function showSnowState(value: unknown) {
   const state = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const status = document.getElementById("cdphelper-status")!;
-  status.textContent = state.connected
-    ? `Connected / 已连接: ${instanceLabel(state)}`
-    : `Disconnected / 未连接${state.error ? `: ${String(state.error)}` : ""}`;
+  const number = state.connected ? instanceDisplayNumber(state) : null;
+  if (number === null) {
+    status.textContent = state.connected
+      ? `Connected / 已连接: ${instanceLabel(state)}`
+      : `Disconnected / 未连接${state.error ? `: ${String(state.error)}` : ""}`;
+    return;
+  }
+  const appearance = instanceAppearance(number);
+  const name = document.createElement("span");
+  name.id = "cdphelper-instance-name";
+  name.textContent = typeof state.name === "string" && state.name.trim() ? state.name.trim() : "浏览器";
+  const badge = document.createElement("span");
+  badge.id = "cdphelper-instance-number";
+  badge.className = "instance-number";
+  badge.textContent = `编号 ${number}`;
+  badge.style.backgroundColor = appearance.background;
+  badge.style.color = appearance.foreground;
+  status.replaceChildren("Connected / 已连接: ", name, " · ", badge);
 }
 
 if (snowPlugin) {

@@ -1,6 +1,8 @@
 // MODCDP_TS_ONLY: DO NOT TRANSLATE THIS FILE TO OTHER LANGUAGES.
 // Reason: only runs in browser.
 
+export { instanceAppearance } from "../../plugin/src/instance-appearance.mjs";
+
 export function instanceDisplayNumber(value: { display_number?: unknown }): number | null {
   const number = value.display_number;
   return typeof number === "number" && Number.isSafeInteger(number) && number > 0 ? number : null;

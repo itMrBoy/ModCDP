@@ -4,7 +4,7 @@
 
 import { ModCDPServer } from "../../js/src/server/ModCDPServer.js";
 import type { ReverseWSBridgeOptions } from "../../js/src/transport/ReverseWSDownstreamTransport.js";
-import { instanceDisplayNumber, instanceLabel } from "./instanceDisplay.js";
+import { instanceAppearance, instanceDisplayNumber, instanceLabel } from "./instanceDisplay.js";
 
 declare const __MODCDP_ENABLE_REVERSEWS__: boolean;
 declare const __MODCDP_ENABLE_NATS__: boolean;
@@ -15,8 +15,11 @@ const defaultSnowBridgeUrl = "ws://127.0.0.1:29393/bridge";
 
 async function updateInstanceBadge(registration: { name?: unknown; display_number?: unknown } | null) {
   const number = registration && instanceDisplayNumber(registration);
+  const appearance = instanceAppearance(number);
   // Display failures must not prevent registration, storage updates or owned-token retention.
   for (const update of [
+    () => chrome.action.setBadgeBackgroundColor({ color: appearance.background }),
+    () => chrome.action.setBadgeTextColor({ color: appearance.foreground }),
     () => chrome.action.setBadgeText({ text: number ? String(number) : "" }),
     () =>
       chrome.action.setTitle({
