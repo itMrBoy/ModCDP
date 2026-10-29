@@ -87,9 +87,11 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Verify the plugin and bridge
         working-directory: source
+        env:
+          SNOW_TEST_HEADED: "1"
         run: |
           export SNOW_TEST_BROWSER="$(node --input-type=module -e "import {chromium} from 'playwright'; process.stdout.write(chromium.executablePath())")"
-          pnpm run test:plugin
+          xvfb-run --auto-servernum pnpm run test:plugin
       - name: Prepare attachments and Chinese source changelog
         env:
           GH_TOKEN: ${{ github.token }}

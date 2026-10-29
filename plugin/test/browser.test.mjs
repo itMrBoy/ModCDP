@@ -76,7 +76,7 @@ test(
       for (const alias of ["Profile A", "Profile B"]) {
         const context = await chromium.launchPersistentContext(path.join(scratch, alias), {
           executablePath,
-          headless: true,
+          headless: process.env.SNOW_TEST_HEADED !== "1",
           ignoreDefaultArgs: ["--disable-extensions"],
           args: [
             `--disable-extensions-except=${extension}`,
