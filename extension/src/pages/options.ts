@@ -1,5 +1,7 @@
 // MODCDP_TS_ONLY: DO NOT TRANSLATE THIS FILE TO OTHER LANGUAGES.
 // Reason: only runs in browser.
+
+import { instanceLabel } from "../instanceDisplay.js";
 type RuntimeJSON = {
   type?: string;
   config?: unknown;
@@ -15,7 +17,7 @@ function showSnowState(value: unknown) {
   const state = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const status = document.getElementById("cdphelper-status")!;
   status.textContent = state.connected
-    ? `Connected / 已连接: ${String(state.name)} [${String(state.short_id)}]`
+    ? `Connected / 已连接: ${instanceLabel(state)}`
     : `Disconnected / 未连接${state.error ? `: ${String(state.error)}` : ""}`;
 }
 

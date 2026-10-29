@@ -21,6 +21,21 @@ async function until(check, message) {
   throw new Error(message);
 }
 
+async function profileState(context) {
+  try {
+    const worker = context.serviceWorkers()[0];
+    if (!worker) return null;
+    return await worker.evaluate(async () => ({
+      state: (await chrome.storage.session.get("snowBridgeState")).snowBridgeState,
+      badge: await chrome.action.getBadgeText({}),
+      title: await chrome.action.getTitle({}),
+    }));
+  } catch {
+    // Reads can race the old worker closing during a deliberate extension reload.
+    return null;
+  }
+}
+
 test(
   "same extension in multiple profiles: explicit routing, ownership, parallel operations and reconnect invalidation",
   { timeout: 120000 },
@@ -103,7 +118,7 @@ test(
             await chrome.storage.local.set({ snowBridgeUrl: url, snowInstanceName: alias });
             setTimeout(() => chrome.runtime.reload(), 50);
           },
-          { url: `ws://127.0.0.1:${broker.bridge.port}/bridge`, alias },
+          { url: `ws://127.0.0.1:${broker.bridge.port}/bridge`, alias: "工作浏览器" },
         );
       }
       const inventory = await until(async () => {
@@ -112,9 +127,31 @@ test(
           status.instances.length === 2 && status.instances.every((i) => i.extension_connected) && status.instances
         );
       }, "Both profiles must register independently with the same extension ID");
-      const ia = inventory.find((i) => i.name === "Profile A"),
-        ib = inventory.find((i) => i.name === "Profile B");
+      const registeredProfiles = await Promise.all(
+        contexts.map((context) =>
+          until(async () => {
+            const value = await profileState(context);
+            return value?.state?.connected && value.badge === String(value.state.display_number) && value;
+          }, "The toolbar badge must match this profile's current registration before selection"),
+        ),
+      );
+      const ia = inventory.find((i) => i.instance_id === registeredProfiles[0].state.instance_id),
+        ib = inventory.find((i) => i.instance_id === registeredProfiles[1].state.instance_id);
       assert.ok(ia && ib);
+      assert.equal(ia.name, "工作浏览器");
+      assert.equal(ib.name, "工作浏览器");
+      assert.notEqual(ia.display_number, ib.display_number, "duplicate names must have distinct display numbers");
+      for (const [index, instance] of [ia, ib].entries()) {
+        assert.equal(broker.instances.get(instance.instance_id).browser, null, "badges do not connect Playwright");
+        assert.equal(instance.playwright_connected, false);
+        assert.match(registeredProfiles[index].title, new RegExp(`工作浏览器 · 编号 ${instance.display_number}`));
+        const options = await contexts[index].newPage();
+        await options.goto(`chrome-extension://${release.extension.expected_extension_id}/options.html`);
+        const status = await options.locator("#cdphelper-status").innerText();
+        assert.ok(status.includes(`工作浏览器 · 编号 ${instance.display_number}`));
+        assert.ok(!status.includes(instance.short_id), "user-facing status must not require the random short ID");
+        await options.close();
+      }
       assert.notEqual(ia.instance_id, ib.instance_id);
       assert.notEqual(ia.short_id, ib.short_id);
       assert.equal(
@@ -169,9 +206,14 @@ test(
       const replacement = await until(async () => {
         const status = await broker.call(c, "browser_status", {});
         return status.instances.find(
-          (i) => i.name === "Profile A" && i.instance_id !== ia.instance_id && i.extension_connected,
+          (i) => i.instance_id !== ia.instance_id && i.instance_id !== ib.instance_id && i.extension_connected,
         );
       }, "Reloaded extension must register a new instance ID");
+      assert.ok(replacement.display_number > Math.max(ia.display_number, ib.display_number));
+      await until(async () => {
+        const value = await profileState(contexts[0]);
+        return value?.badge === String(replacement.display_number);
+      }, "A reloaded profile must show the new display number, not its old badge");
       const after = await broker.call(c, "browser_status", {});
       assert.notEqual(after.selected, replacement.instance_id, "reconnection must not silently rebind a session");
       await assert.rejects(broker.call(c, "browser_snapshot", first), /expired|attached|select|disconnected/i);
@@ -223,6 +265,12 @@ test(
       assert.equal(stable.instances.filter((i) => i.owned_instance_id === ownedRecord.instance_id).length, 1);
       await broker.call(pendingSession, "browser_finish", { close_and_cleanup: false, confirmed_by_user: true });
       await broker.close();
+      for (const context of contexts) {
+        await until(async () => {
+          const value = await profileState(context);
+          return value?.state?.connected === false && value.badge === "" && value.title.includes("未连接");
+        }, "Disconnect must clear the badge while preserving the browser and its pages");
+      }
       for (const context of contexts)
         assert.ok(
           context.pages().some((p) => p.url() === url),

@@ -24,9 +24,9 @@ export class BrowserBroker {
   constructor({
     home,
     extensionId,
-    extensionVersion = "0.1.1",
+    extensionVersion = "0.1.2",
     bridgePort = 29393,
-    releaseUrl = "https://github.com/itMrBoy/cdpHelper/releases/tag/v0.1.1",
+    releaseUrl = "https://github.com/itMrBoy/cdpHelper/releases/tag/v0.1.2",
     checkIsolated = isolatedRunning,
     connect = (endpoint) => chromium.connectOverCDP(endpoint, { noDefaults: true, timeout: 15000 }),
   }) {
@@ -39,6 +39,7 @@ export class BrowserBroker {
     this.connect = connect;
     this.sessions = new Map();
     this.instances = new Map();
+    this.nextDisplayNumber = 1;
     this.tabs = new Map();
     this.records = [];
     this.recordsQueue = Promise.resolve();
@@ -151,10 +152,12 @@ export class BrowserBroker {
         key = randomUUID();
         short = key.replaceAll("-", "").slice(0, 8);
       } while ([...this.instances.values()].some((i) => i.short === short));
+      const displayNumber = this.nextDisplayNumber++;
       const instance = {
         key,
         short,
-        name: hello.name?.trim() || "cdpHelper " + short,
+        displayNumber,
+        name: hello.name?.trim() || "浏览器 " + displayNumber,
         proxy,
         record,
         peer,
@@ -180,6 +183,7 @@ export class BrowserBroker {
         type: "snow.bridge.registered",
         instance_id: key,
         short_id: short,
+        display_number: displayNumber,
         name: instance.name,
         owned: Boolean(record),
       };
@@ -212,6 +216,7 @@ export class BrowserBroker {
     return {
       instance_id: instance.key,
       short_id: instance.short,
+      display_number: instance.displayNumber,
       name: instance.name,
       mode: instance.record ? "isolated" : "reuse",
       ...(instance.record ? { owned_instance_id: instance.record.instance_id } : {}),

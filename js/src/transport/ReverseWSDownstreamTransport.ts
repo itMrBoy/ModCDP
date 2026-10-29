@@ -25,6 +25,7 @@ const ReverseWSRegistrationSchema = z.object({
   type: z.literal("snow.bridge.registered"),
   instance_id: z.string().uuid(),
   short_id: z.string().regex(/^[a-zA-Z0-9]{8}$/),
+  display_number: z.number().int().positive().optional(),
   name: z.string(),
   owned: z.boolean(),
 });

@@ -18,7 +18,7 @@ const empty = z.object({}).strict();
 export const tools = [
   [
     "browser_status",
-    "List connected browser instances, short IDs and setup state without selecting or operating a browser.",
+    "List browser names, display_number values matching extension toolbar badges, and setup state without selecting or operating a browser. Use instance_id only for internal routing.",
     empty,
   ],
   [
