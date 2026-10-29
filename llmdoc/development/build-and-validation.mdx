@@ -1,6 +1,6 @@
 ---
 description: >-
-  JS SDK 与扩展构建、ReverseWS 开关、ModCDP 引入 cdpHelper 子模块、main 插件市场及独立 Release
+  JS SDK 与扩展构建、ReverseWS 开关、cdpHelper 子模块单向产物交付、备份回滚及独立 Release
   扩展分发边界；区分自动检查与真实宿主、雪诺验收。
 kind: guide
 code:
@@ -10,13 +10,16 @@ code:
     - tsconfig.json
     - js/scripts/build-extension-assets.mjs
     - js/scripts/build-plugin.mjs
+    - js/scripts/deliver-plugin.mjs
     - plugin/version.json
     - plugin/release/README.md
     - plugin/release/README.zh-CN.md
-    - skills/cdphelper/references/setup.md
+    - plugin/skills/cdphelper/references/setup.md
+    - plugin/skills/cdphelper/scripts/run.mjs
     - README.md
     - README.zh-CN.md
     - plugin/test/runtime.test.mjs
+    - plugin/test/delivery.test.mjs
     - .pre-commit-config.yaml
     - .github/workflows/test.yml
     - .github/workflows/lint.yml
@@ -49,11 +52,17 @@ Git 不跟踪展开的 node_modules，检查范围同时覆盖候选工作树、
 
 唯一插件分发入口为 cdpHelper 的 main 分支：该仓根维护两端 marketplace，`plugins/cdphelper` 放完整产物，不引入或复制 ModCDP 源码。ModCDP 维护源码、构建和测试，并从根目录 `cdpHelper/` 子模块锁定分发仓提交；初始化后可在当前源码工作区看到市场与插件。关联方向只能是 ModCDP → cdpHelper，不能在分发仓反向建立 `source/ModCDP` 子模块或形成递归引用。扩展 ZIP 独立放 cdpHelper Release，不进入插件目录或插件 Git 树，不使用 plugin-dist 分支。仓库不通过 npm 分发本插件。
 
+发布输入全部归 ModCDP 维护，包括运行时、技能和清单生成逻辑；静态技能也与 MCP 工具契约配套校验，不以是否编译拆分维护权。cdpHelper 的市场与插件是生成结果，不手工修改。构建命令只生成本地候选，不依赖子模块已初始化；交付命令才将候选写入分发检出。
+
+`deliver:plugin` 要求源码干净、cdpHelper 已初始化且干净，正式 URL、gitlink 与实际 HEAD 一致；受管路径内即使是 Git 忽略的本地文件，也须先保留到别处。交付锁防止同一检出并发执行，再从干净源码构建正式候选并核验外层文件、压缩运行时、版本、来源和 Release 摘要。构建后重新核验两仓状态，不能将构建期间变化的检出当作同一来源。
+
+交付只替换两端 marketplace.json 和完整 plugins/cdphelper 目录，保留子仓 README、Git 数据及其他维护文件；拒绝受管路径中的链接越界。先暂存新文件并保留旧文件，再替换及校验目标字节；失败恢复旧文件，恢复不完整时保留备份并明确报告，不能声称已回滚。交付报告记录来源、摘要与文件差异，不自动提交、推送或发布。中断遗留的锁和备份须先检查再处理，不通过重跑静默覆盖现场。
+
 交付顺序为：提交干净源码 A，从 A 构建并记录真实 source_commit；在 cdpHelper 核验、提交产物 B；最后由 ModCDP 的后续提交 C 将子模块锁定 B。C 只更新分发关联时，产物来源仍是 A，不能为了让来源等于父仓最新 HEAD 反复重建而制造循环引用。更新产物、父仓指针与 Release 附件是不同交付步骤；构建成功不等于它们已发布或验收。对外分发前，来源 A 与分发 B 都须能从各自配置的远端取得，本地对象可用不证明远端可用。
 
 父仓的格式化、检查与构建工具不得递归改写子模块内已校验的产物或其生产依赖；子模块内容由分发仓独立维护、提交和核验。不能用修改父仓忽略规则来替代检查子模块本身的 Git 状态。
 
-构建器从 skills/cdphelper 生成插件技能，以 --cdphelper-plugin 编译配套扩展；扩展 ZIP 命名为 cdphelper-extension-v版本号.zip，构建来源记录在扩展内的 cdphelper-bridge.json。版本与摘要以构建元数据为准。改名不更换扩展公钥或 ID，也不改变 bridge 协议；插件和配套扩展仍须按构建版本匹配。
+构建器从 plugin/skills/cdphelper 生成插件技能，以 --cdphelper-plugin 编译配套扩展；扩展 ZIP 命名为 cdphelper-extension-v版本号.zip，构建来源记录在扩展内的 cdphelper-bridge.json。版本与摘要以构建元数据为准。改名不更换扩展公钥或 ID，也不改变 bridge 协议；插件和配套扩展仍须按构建版本匹配。技能目录的兼容 runner 仅供源码开发，不进入安装产物，也不替代插件的多实例会话管理。
 
 ## 验证到所需责任边界
 
