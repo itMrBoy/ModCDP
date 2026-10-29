@@ -6,10 +6,10 @@
   },
   "documents": {
     "browser/cdp-endpoint.mdx": {
-      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
+      "validatedRevision": "50c30cb08df589e7bb597a282a316373dbf80651"
     },
     "browser/worker-lifecycle.mdx": {
-      "validatedRevision": "ebe3fd3d7877bca70b54a3912e59e1f325846a67"
+      "validatedRevision": "50c30cb08df589e7bb597a282a316373dbf80651"
     },
     "connection/browser-lifecycle.mdx": {
       "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
@@ -18,7 +18,7 @@
       "validatedRevision": "ebe3fd3d7877bca70b54a3912e59e1f325846a67"
     },
     "development/build-and-validation.mdx": {
-      "validatedRevision": "20f8daad30e72d5ac7e834af55adfba5d6e4daba"
+      "validatedRevision": "50c30cb08df589e7bb597a282a316373dbf80651"
     },
     "development/sdk-parity.mdx": {
       "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
@@ -30,7 +30,7 @@
       "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "connection/cdphelper-plugin-runtime.mdx": {
-      "validatedRevision": "20f8daad30e72d5ac7e834af55adfba5d6e4daba"
+      "validatedRevision": "50c30cb08df589e7bb597a282a316373dbf80651"
     }
   },
   "convergence": {
