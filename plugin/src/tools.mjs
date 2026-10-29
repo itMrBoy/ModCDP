@@ -23,11 +23,20 @@ export const tools = [
   ],
   [
     "browser_select",
-    "List browser_status and ask the user to choose an existing instance_id (reuse) or start isolated Snow. Never fall back.",
+    "List browser_status and ask the user to choose an existing instance_id (reuse) or start isolated Snow. For reuse, instance_id is required and executable is not allowed. For isolated, executable is optional and instance_id is not allowed. Never fall back.",
     z.discriminatedUnion("mode", [
       z.object({ mode: z.literal("reuse"), instance_id: id }).strict(),
       z.object({ mode: z.literal("isolated"), executable: z.string().optional() }).strict(),
     ]),
+    // Claude rejects root-level unions. Advertise the fields as one object;
+    // the discriminated union above still validates arguments on the server.
+    z
+      .object({
+        mode: z.enum(["reuse", "isolated"]),
+        instance_id: id.optional(),
+        executable: z.string().optional(),
+      })
+      .strict(),
   ],
   ["browser_tabs", "List pages in this session's selected browser and their ownership.", empty],
   ["browser_bind", "Exclusively bind an available tab to this session.", z.object(page).strict()],
@@ -85,7 +94,7 @@ export const tools = [
     "Only after explicit user confirmation, close and clean one retained plugin-created instance.",
     z.object({ instance_id: id, confirmed_by_user: z.literal(true) }).strict(),
   ],
-].map(([name, description, schema]) => ({ name, description, schema }));
+].map(([name, description, schema, listingSchema]) => ({ name, description, schema, listingSchema }));
 
 export function parseTool(name, args) {
   const tool = tools.find((t) => t.name === name);

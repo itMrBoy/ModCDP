@@ -63,6 +63,18 @@ test(
       [a, b] = await Promise.all([client(plugin, home), client(plugin, home)]);
       const definitions = await a.listTools();
       assert.ok(definitions.tools.some((t) => t.name === "browser_select"));
+      for (const tool of definitions.tools) {
+        assert.equal(tool.inputSchema.type, "object", tool.name);
+        for (const keyword of ["oneOf", "anyOf", "allOf"]) {
+          assert.ok(!(keyword in tool.inputSchema), `${tool.name} has root-level ${keyword}`);
+        }
+      }
+      const selectionSchema = definitions.tools.find((t) => t.name === "browser_select").inputSchema;
+      assert.deepEqual(selectionSchema.properties.mode.enum, ["reuse", "isolated"]);
+      assert.deepEqual(selectionSchema.required, ["mode"]);
+      assert.equal(selectionSchema.properties.instance_id.type, "string");
+      assert.equal(selectionSchema.properties.executable.type, "string");
+      assert.equal(selectionSchema.additionalProperties, false);
       assert.ok(!definitions.tools.some((t) => /run_code|evaluate/.test(t.name)));
       assert.ok(!definitions.tools.some((t) => /configure_extension/.test(t.name)));
       assert.equal((await status(a)).selection_required, true);
