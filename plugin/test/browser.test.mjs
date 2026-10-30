@@ -10,6 +10,7 @@ import { build } from "esbuild";
 import { chromium } from "playwright-core";
 import { randomUUID, randomBytes } from "node:crypto";
 import { instanceAppearance } from "../src/instance-appearance.mjs";
+import { startBridge } from "../src/bridge.mjs";
 
 const rgba = (hex) => [
   ...hex
@@ -165,11 +166,49 @@ test(
         if (!(await developerMode.evaluate((toggle) => toggle.checked))) await developerMode.click();
         assert.equal(await developerMode.evaluate((toggle) => toggle.checked), true);
         await extensionsPage.close();
-        const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
+        let worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
         await until(
           () => worker.evaluate(() => Boolean(chrome.storage?.local)),
           "Extension APIs must be initialized before profile configuration",
         );
+        if (alias === "Profile A") {
+          const incompatible = await startBridge({
+            port: 0,
+            extensionId: release.extension.expected_extension_id,
+            extensionVersion: "999.0.0",
+            register() {
+              throw new Error("Incompatible extension must not register");
+            },
+            disconnected() {},
+            initialization() {
+              return false;
+            },
+          });
+          try {
+            await worker.evaluate(async (url) => {
+              await chrome.storage.local.set({ snowBridgeUrl: url });
+              setTimeout(() => chrome.runtime.reload(), 50);
+            }, `ws://127.0.0.1:${incompatible.port}/bridge`);
+            await until(async () => {
+              const value = await profileState(context);
+              return value?.state?.registration_error?.reason === "extension_update_required" && value;
+            }, "Version rejection must reach the extension storage");
+            // Both the immediate close and a new rejected connection must retain the actionable error.
+            await pause(2200);
+            const failed = await profileState(context);
+            assert.equal(failed.state.connected, false);
+            assert.equal(failed.state.registration_error.required_action, "extension_update");
+            assert.match(failed.state.error, /cdpHelper 浏览器扩展/);
+            assert.match(failed.state.error, /本机 cdpHelper plugin 999\.0\.0/);
+            const options = await context.newPage();
+            await options.goto(`chrome-extension://${release.extension.expected_extension_id}/options.html`);
+            assert.match(await options.locator("#cdphelper-status").textContent(), /999\.0\.0/);
+            await options.close();
+            worker = context.serviceWorkers()[0];
+          } finally {
+            await incompatible.close();
+          }
+        }
         await worker.evaluate(
           async ({ url, alias }) => {
             await chrome.storage.local.set({ snowBridgeUrl: url, snowInstanceName: alias });
@@ -192,6 +231,7 @@ test(
           }, "The toolbar badge must match this profile's current registration before selection"),
         ),
       );
+      assert.ok(registeredProfiles.every((value) => !value.state.error && !value.state.registration_error));
       const ia = inventory.find((i) => i.instance_id === registeredProfiles[0].state.instance_id),
         ib = inventory.find((i) => i.instance_id === registeredProfiles[1].state.instance_id);
       assert.ok(ia && ib);
@@ -287,7 +327,11 @@ test(
       });
       await until(async () => {
         const result = await broker.call(a, "browser_network_requests", { capture_id: capture.capture_id });
-        return result.items?.some((r) => r.state === "failed") && result.items.some((r) => r.status === 503);
+        return (
+          result.items?.some((r) => r.state === "failed") &&
+          result.items.some((r) => r.status === 503 && r.state === "completed") &&
+          result.items.some((r) => r.url.endsWith("/slow") && r.state === "completed")
+        );
       }, "Proxy capture must include completed and failed requests");
       const messages = await broker.call(a, "browser_console_messages", { capture_id: capture.capture_id });
       assert.match(JSON.stringify(messages), /proxy-capture-marker/);

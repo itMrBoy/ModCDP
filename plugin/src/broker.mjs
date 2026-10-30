@@ -65,6 +65,9 @@ export class BrowserBroker {
     this.disposals = new Set();
     this.cleanups = new Set();
   }
+  get rejectedExtensions() {
+    return this.bridge?.rejections ?? [];
+  }
   async init() {
     await mkdir(this.home, { recursive: true, mode: 0o700 });
     this.records = await json(path.join(this.home, "retained.json"), []);
@@ -451,6 +454,7 @@ export class BrowserBroker {
           .filter((r) => ![...this.sessions.values()].some((s) => s.isolation === r.instance_id))
           .map((r) => ({ instance_id: r.instance_id, profile: r.profile, pid: r.pid })),
         selection_required: !this.instances.has(session.instance) && !session.pending,
+        extension_issues: this.rejectedExtensions,
         bridge: { listening: true, endpoint: "ws://127.0.0.1:" + this.bridge.port + "/bridge", protocol_version: 2 },
         setup:
           "Download the matching extension Release separately, unzip it, and manually load extension/ in the target Snow window, or enable its profile-distributed copy. The plugin never installs or copies extensions.",
@@ -634,6 +638,11 @@ export class BrowserBroker {
     if (name === "browser_screenshot") return { image: (await page.screenshot({ timeout: 10000 })).toString("base64") };
     const locator = this.locator(page, args.target);
     if (["browser_click", "browser_fill", "browser_press"].includes(name)) {
+      if (name === "browser_click") {
+        // Measure the position Playwright will click, after its normal scroll.
+        await locator.scrollIntoViewIfNeeded({ timeout: 10000 });
+        guard();
+      }
       const box = await locator.boundingBox({ timeout: 1000 }).catch(() => null);
       guard();
       await tab.control.update({ action: actionLabels[name], box });

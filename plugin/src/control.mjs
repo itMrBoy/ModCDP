@@ -13,6 +13,7 @@ function installControl({ key, binding, token, generation, expiresAt, action, bo
   }
   let host,
     shadow,
+    bar,
     label,
     target,
     pointer,
@@ -38,7 +39,27 @@ function installControl({ key, binding, token, generation, expiresAt, action, bo
     if (!label) return;
     label.textContent = currentAction || "正在控制此页面";
     if (!/点击|填写|按键|click|fill|press/i.test(currentAction || "")) pointer.style.display = "none";
-    if (currentBox && [currentBox.x, currentBox.y, currentBox.width, currentBox.height].every(Number.isFinite)) {
+    const hasBox =
+      currentBox && [currentBox.x, currentBox.y, currentBox.width, currentBox.height].every(Number.isFinite);
+    // Only stop receives pointer events. Keep the whole bar away from the
+    // operation target so its stop button cannot obstruct Playwright's hit test.
+    bar.style.top = "10px";
+    if (hasBox) {
+      const rect = bar.getBoundingClientRect();
+      const gap = 8;
+      if (
+        rect.left < currentBox.x + currentBox.width + gap &&
+        rect.right > currentBox.x - gap &&
+        rect.top < currentBox.y + currentBox.height + gap &&
+        rect.bottom > currentBox.y - gap
+      ) {
+        const bottom = Math.max(10, window.innerHeight - rect.height - 10);
+        const below = currentBox.y + currentBox.height + gap;
+        const above = currentBox.y - rect.height - gap;
+        bar.style.top = `${below <= bottom ? Math.max(10, below) : above >= 10 ? above : bottom}px`;
+      }
+    }
+    if (hasBox) {
       Object.assign(target.style, {
         display: "block",
         left: `${currentBox.x}px`,
@@ -68,7 +89,7 @@ function installControl({ key, binding, token, generation, expiresAt, action, bo
       .ripple{position:fixed;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #7775f6;border-radius:50%;background:#7775f622;pointer-events:none}
     `);
     shadow.adoptedStyleSheets = [sheet];
-    const bar = document.createElement("div");
+    bar = document.createElement("div");
     bar.className = "bar";
     const brand = document.createElement("span");
     brand.className = "brand";

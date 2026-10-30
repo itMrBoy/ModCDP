@@ -24,8 +24,8 @@ const pagination = {
 export const tools = [
   [
     "browser_status",
-    "List browser names, display_number values matching extension toolbar badges, and setup state without selecting or operating a browser. Use instance_id only for internal routing.",
-    empty,
+    "Read cdpHelper plugin backend readiness, extension setup and browser inventory without selecting a browser. If upgrade_required, first tell the user the component-specific message and interruption impact, then call again with acknowledge_upgrade_notice set to the returned upgrade_notice_id. This replaces the old plugin backend and interrupts its work; it never closes hosts or browsers. Use instance_id only for internal routing.",
+    z.object({ acknowledge_upgrade_notice: z.string().uuid().optional() }).strict(),
   ],
   [
     "browser_select",
@@ -190,7 +190,9 @@ export const tools = [
   annotations:
     name === "browser_evaluate"
       ? { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
-      : undefined,
+      : name === "browser_status"
+        ? { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+        : undefined,
 }));
 
 export function parseTool(name, args) {

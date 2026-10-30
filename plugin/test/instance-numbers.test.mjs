@@ -59,7 +59,7 @@ test(
     const sockets = [];
     let broker;
     try {
-      broker = new BrowserBroker({ home: scratch, extensionId, bridgePort: 0 });
+      broker = new BrowserBroker({ home: scratch, extensionId, extensionVersion: version, bridgePort: 0 });
       await broker.init();
       const session = broker.createSession();
       const one = await peer(broker.bridge.port, "工作浏览器", sockets);
@@ -91,7 +91,7 @@ test(
       await broker.call(session, "browser_select", { mode: "reuse", instance_id: two.instance_id });
       assert.equal((await broker.call(session, "browser_status", {})).selected, two.instance_id);
       await broker.close();
-      broker = new BrowserBroker({ home: scratch, extensionId, bridgePort: 0 });
+      broker = new BrowserBroker({ home: scratch, extensionId, extensionVersion: version, bridgePort: 0 });
       await broker.init();
       const restarted = await peer(broker.bridge.port, undefined, sockets);
       assert.equal(restarted.display_number, 1);

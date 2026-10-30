@@ -1,13 +1,14 @@
 ---
 description: >-
   Codex 与 Claude Code cdpHelper 插件的本地 Broker、实例显示编号与明确选择、多会话独占 tab、扩展 bridge
-  与断线保留及确认清理边界、Claude 工具 Schema 兼容、页面 JavaScript、人工停止接管、网络 Console 采集与性能 Trace 导出生命周期。
+  与断线保留及确认清理边界、后台升级交接与宿主重载、扩展版本诊断、Claude 工具 Schema 兼容、页面 JavaScript、人工停止接管、网络 Console 采集与性能 Trace 导出生命周期。
 kind: architecture
 code:
   paths:
     - plugin/launch.mjs
     - plugin/src/cli.mjs
     - plugin/src/service.mjs
+    - plugin/src/runtime-client.mjs
     - plugin/src/broker.mjs
     - plugin/src/bridge.mjs
     - plugin/src/control.mjs
@@ -15,6 +16,8 @@ code:
     - plugin/src/evaluate.mjs
     - plugin/src/diagnostics.mjs
     - plugin/test/bridge.test.mjs
+    - plugin/test/runtime-client.test.mjs
+    - plugin/test/service-upgrade.test.mjs
     - plugin/test/browser.test.mjs
     - plugin/test/instance-numbers.test.mjs
     - plugin/test/control.test.mjs
@@ -24,6 +27,7 @@ code:
     - plugin/test/tools.test.mjs
     - plugin/test/isolated-routing.test.mjs
     - plugin/test/isolated-launch.test.mjs
+    - plugin/test/isolated-lifetime.test.mjs
     - plugin/src/isolated.mjs
     - plugin/src/tools.mjs
     - plugin/skills/cdphelper/SKILL.md
@@ -55,11 +59,21 @@ MCP 工具对外的参数 Schema 与服务端校验可以分开维护：Claude A
 
 ## 一个后台服务，多个登记实例
 
-每个 MCP stdio 接入建立独立会话，同一用户目录复用一个后台 Broker。启动锁与 runtime 身份协调后台复用；旧 runtime 仍有活跃会话时阻止升级接管，不杀进程或静默切换版本。stdio 只承载协议，日志独立保存。入口使用 Node ≥22 和完整随包依赖，不下载依赖、不切换 Node 或修改 PATH，也不通过缓存复制修补不完整产物。
+MCP stdio 握手与工具发现先于后台就绪，不因旧后台阻塞而让整套工具消失。`runtime-client.mjs` 为每个接入管理后台连接和独立会话，同一用户目录复用一个 Broker。`browser_status` 分别报告宿主已加载插件、本机后台及目标版本；后台不可查询时 `instances: null` 表示未知，不能作为空清单处理或借新建隔离实例绕过故障。stdio 只承载协议，日志独立保存。入口使用 Node ≥22 和完整随包依赖，不下载依赖、不切换 Node 或修改 PATH，也不通过缓存复制修补不完整产物。
+
+后台版本较旧时先返回 `upgrade_required`，Agent 必须告知具体 plugin 版本及旧控制、诊断中断影响，再回传本次 `upgrade_notice_id` 作为 `acknowledge_upgrade_notice`；它记录告知已完成，不代替页面选择或清理同意。提示凭据仅在当前 MCP 接入内关联后台 PID、runtime 与私有 token，状态输出不泄露 token。确认立即返回 `upgrading`，后台异步交接；Agent 按返回间隔有界轮询，不能重复提交提示或重放页面操作。交接使旧会话、控制代次及页面引用失效，清理自有提示和采集，保留宿主、浏览器窗口、标签页与 profile；已发出的操作可能继续产生效果。
+
+启动锁内重新核对被告知的后台快照与已激活版本下限，防止陈旧确认、并发替换或旧宿主重新启动低版本后台。同版本不同摘要拒绝接管。支持升级协议的后台先协作退出且有退出预算；旧协议后台仅在 Windows 核验自有运行时目录、构建身份、Node executable 和完整 daemon 参数后才允许定向终止，验证失败不杀进程。任何交接都不关闭宿主或浏览器。宿主加载版本落后于已激活后台时返回 `plugin_reload_required`，明确要求重载对应 Codex 或 Claude Code 的 plugin 配置，不支持时退出重开该宿主；MCP 重连可能继续沿用旧路径，不能等同插件配置重载。
+
+定向终止自有 Node 后台仍可能连带结束它启动的浏览器。Windows 的 libuv 将非 detached 子进程纳入父进程私有的 kill-on-close Job Object，`unref()` 不能解除该关系。隔离启动通过 `spawnIndependentBrowser` 使用 `detached: true`、忽略 stdio 并 `unref()`，同时保持 GUI 可见；记录与 owner marker 同时保存 `lifetime_detached: true` 作为启动证明，不能仅按 plugin 版本推断。
+
+新启动方式不能追溯解除旧窗口的父进程依赖。启动锁内的 `assertBrowserLifetimePreserved` 先于升级 RPC 和进程信号检查旧隔离记录；仍存活且没有双份 detached 证明，或归属、记录及进程状态无法核验时，以 `PLUGIN_BROWSER_PRESERVATION_BLOCKED` 阻止交接，`browser_status` 返回 `upgrade_blocked`。Agent 保留旧后台和窗口，明确旧/目标 plugin 版本及原因，不自动重试；待用户主动结束这些旧隔离窗口并明确继续后再交接。已退出的旧实例可放行，用户自行启动的 reuse 窗口不受此保护阻塞。旧后台的正常退出也有同一进程寿命风险，不能把“没有直接结束雪诺 PID”当成窗口保留证明。
 
 运行时与固定版本生产依赖以 runtime.pack.gz 随包交付，插件 Git 树不包含展开的 node_modules。入口使用 Node 内置能力先校验外层产物，再按内部 runtime inventory 核验文件路径、内容与权限，并限制解压大小；首次运行只在用户运行时目录内物化文件，完整验证后原子启用，后续仍校验缓存。缺失或校验失败须报告，不能联网补装或跳过校验。依赖在本机缓存展开是运行准备，不代表将依赖目录提交到仓库。
 
 多个普通 profile 统一通过 127.0.0.1:29393/bridge 登记为独立实例；公共监听入口不等于共用实例身份。每个 profile 的连接身份保存在自己的扩展 storage 中。`plugin/src/bridge.mjs` 拥有29393监听、扩展 Origin 与 hello 协议/版本核验，以及每个 peer 到各自认证代理的 relay；这些职责不下沉为普通页面权限。用户从独立 Release ZIP 自行安装扩展，插件不接收目录、不下载或复制扩展、不提供 configure_extension，不向公共扩展目录写入凭据。
+
+登记拒绝区分扩展身份、桥接协议与配套 Release 版本，不能一律解释为扩展未连接。bridge 只保留短期、有界且脱敏的拒绝摘要，不记录原始 hello、启动 token、名称或网页信息；Broker 状态可在实例未登记时报告这些问题。扩展版本落后时 `extension_update_required` 指向浏览器扩展手动更新；扩展较新时 `plugin_update_required` 指向对应宿主的 plugin 更新或配置重载，不能要求降级扩展。身份及协议错误沿用各自恢复动作，不将任何拒绝记录视为可选实例或控制授权。
 
 Broker 为所选实例持有唯一 Playwright 连接，多会话共享该连接。底层代理单个 CDP 前端的限制仍然成立；插件通过内部调度和 tab 归属提供多会话，不能由此推断独立代理支持多个 Playwright 客户端。IPC 和 CDP 前端保留身份校验；扩展登记及启动关联同样必须落在预期本机信任边界，不能用浏览器 UA 或端口监听代替 profile 身份。
 
@@ -70,6 +84,8 @@ Broker 为所选实例持有唯一 Playwright 连接，多会话共享该连接�
 Broker 的 tab 归属是操作授权，Playwright 的底层 debugger 附加不是。Playwright 负责操作和观察页面，ModCDP 补齐扩展调试通道与标准 CDP 客户端的差异，插件负责将能力包装成 MCP 工具、资源归属和可查询结果；新增工具优先复用现有连接，只在测试证明协议缺口后修改适配层。
 
 每次绑定具有独立控制代次。工具入队时记录代次，执行前再验证，释放或重新绑定不能复活旧队列。页面内接管栏、目标轮廓和真实鼠标事件提示仅随绑定生命周期存在；安装失败回滚绑定，导航后重建。提示层运行在独立 world，以 closed Shadow DOM 隔离页面样式，正文快照不把它当作业务内容。页面提示不同于浏览器原生全局 debugger 提示，也不能替代 Broker 的授权校验。
+
+接管 UI 由 plugin 注入，扩展只桥接调试通信，网页点击仍由 Playwright 执行。提示层的被动显示穿透指针，只有“停止控制”按钮接收事件；接管栏按当前操作目标框避让，不改写源站布局或样式。点击目标先通过 Playwright 滚入视口，再测量并更新提示位置，继续使用普通 locator 点击和命中校验，不以强制点击、页面脚本点击或禁用停止入口绕过遮挡。closed Shadow DOM 内的停止按钮被命中时，错误可能只报告外层控制 host，不能据此判断整屏透明层都在拦截。
 
 人工停止通过页面专用 Runtime binding 通知 Broker，验证来源执行上下文、随机凭据和控制代次，不等待普通工具队列。Broker 先撤销归属、更新代次并中断本地等待，再清理提示及采集；其他页面和会话不受影响。普通重新绑定不能越过用户停止标记，只有用户明确要求恢复后才可使用恢复确认参数。已经发送的操作和脚本可能继续产生副作用，本地停止不等于浏览器回滚，不自动重试未知结果。
 
@@ -112,6 +128,8 @@ pending 提供 launch_process_running 与 waiting_for_extension/launch_exited_un
 扩展失联、页面关闭或切换实例后，旧 tab 引用失效；重连不自动恢复归属，也不自动 rebind。重新读取 inventory，由用户明确选择实例，再发现和绑定页面。超时或断线不能触发有副作用操作的自动重放，必须先核对实际结果。
 
 客户端退出、心跳失联或后台空闲回收只释放会话、连接及服务资源，不自动关闭用户窗口或删除隔离 profile。保留记录不证明浏览器仍存活，也不表示已获下次清理同意。stdio 入口收到 EOF、SIGINT 或 SIGTERM 时，先释放会话，再关闭 MCP server/transport，让事件循环自然退出，避免 Windows Node 尚在关闭句柄时强制 process.exit；错误写标准错误和退出码。
+
+通过 `connectOverCDP` 建立的 Playwright 浏览器句柄在释放时关闭调试连接；不能因 `browser.close()` 的名称推断它关闭远程雪诺，更不能通过删除正常连接收尾来修复 Windows 子进程寿命问题。扩展失联时先核验对应浏览器是否仍运行；进程已退出不能继续解释成等待扩展重连，profile 目录存在也不等于窗口保留。
 
 Bridge 关闭先停止接入并解除自有连接，再回收本服务的 HTTP 连接；不能等待浏览器初始化页或预连接补齐请求头后才退出，也不因此关闭浏览器或标签页。
 

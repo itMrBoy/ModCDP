@@ -71,6 +71,7 @@ test(
     const broker = new BrowserBroker({
       home: scratch,
       extensionId,
+      extensionVersion,
       bridgePort: 0,
       // Deliberately injected process fixture. This does not prove real Snow ownership.
       checkIsolated: async () => {

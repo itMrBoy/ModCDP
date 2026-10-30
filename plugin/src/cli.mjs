@@ -7,7 +7,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { tools, parseTool } from "./tools.mjs";
-import { ensureDaemon, runDaemon, rpc } from "./service.mjs";
+import { ensureDaemon, inspectDaemon, runDaemon, rpc } from "./service.mjs";
+import { RuntimeClient } from "./runtime-client.mjs";
 
 async function main() {
   const entry = fileURLToPath(import.meta.url);
@@ -31,8 +32,7 @@ async function main() {
     await runDaemon(config);
     return;
   }
-  const meta = await ensureDaemon(config);
-  const { session_id } = await rpc(meta, "open");
+  const runtimeClient = new RuntimeClient(config, { ensureDaemon, inspectDaemon, rpc });
   const server = new Server({ name: "cdphelper", version: build.version }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: tools.map((t) => ({
@@ -45,12 +45,8 @@ async function main() {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
       parseTool(request.params.name, request.params.arguments);
-      const result = await rpc(
-        meta,
-        "tool",
-        { session_id, name: request.params.name, args: request.params.arguments },
-        60000,
-      );
+      runtimeClient.setHost(server.getClientVersion()?.name);
+      const result = await runtimeClient.call(request.params.name, request.params.arguments ?? {});
       return {
         content: result.image
           ? [{ type: "image", data: result.image, mimeType: "image/png" }]
@@ -60,17 +56,14 @@ async function main() {
       return { isError: true, content: [{ type: "text", text: error.message }] };
     }
   });
-  const timer = setInterval(
-    () => void rpc(meta, "heartbeat", { session_id }, 5000).catch((error) => console.error(error.message)),
-    5000,
-  );
+  const timer = setInterval(() => void runtimeClient.heartbeat(), 5000);
   timer.unref();
   let stopped = false;
   const stop = async () => {
     if (stopped) return;
     stopped = true;
     clearInterval(timer);
-    await rpc(meta, "drop", { session_id }, 5000).catch(() => {});
+    await runtimeClient.close();
   };
   server.onclose = () => {
     void stop();
