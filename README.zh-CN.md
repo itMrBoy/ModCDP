@@ -195,7 +195,9 @@ pnpm run lint
 pnpm run format:check
 ```
 
-示例及完整测试会先构建，可能启动浏览器，且会把扩展恢复为默认开关。
+示例及 `pnpm run test` 会先构建，可能启动浏览器，且会把扩展恢复为默认开关。默认测试只运行本地 SDK 回归，不需要 Browserbase 密钥。`pnpm run test:local` 运行相同回归但不重新构建，CI 在已有构建步骤后复用此入口；`pnpm run test:launchers` 仅验证本地与远程 CDP 启动器。Paseo 的 `test` 快捷入口也调用默认本地测试。
+
+Browserbase 云端集成测试单独使用 `pnpm run test:browserbase`，须先构建并配置 `BROWSERBASE_API_KEY`。CI 缺少该密钥时明确报告云端测试未运行，本地 SDK 和插件检查仍必须执行。
 
 通用 SDK 支持直接连接已有原生 CDP 端点，也支持本地启动、扩展发现和不同传输配置。现有 SDK 配置示例见 [英文 README](README.md#use-the-js-sdk)。示例的 `--loopback` 表示扩展回连原生 CDP；`--debugger` 表示通过扩展 `chrome.debugger` 操作页面；`--direct` 表示普通 CDP 命令直接发往原生端点。这些 SDK 路由选项与上述两个代理快捷入口的选择是不同层面的配置。
 

@@ -339,10 +339,12 @@ dist/                     Built JS, extension, ZIP, and plugin-marketplace artif
 
 ```sh
 pnpm run typecheck
-pnpm run test                     # Rebuilds; needs suitable browsers for integration tests
+pnpm run test                     # Rebuilds and runs local SDK tests; needs a suitable browser, no Browserbase key
 pnpm run lint
 pnpm run format:check
 ```
+
+`pnpm run test:local` runs the same local SDK tests without rebuilding; CI uses this entry after its build steps. `pnpm run test:launchers` checks local and remote CDP launchers. Browserbase cloud tests are separate: after building, run `pnpm run test:browserbase` only when `BROWSERBASE_API_KEY` is configured. CI reports these cloud checks as not run when the key is absent; local SDK and plugin checks remain required. Paseo's `test` shortcut invokes the default local test entry.
 
 The following architecture notes and wire diagrams describe the default native-CDP/loopback flow unless they explicitly mention reverse mode.
 
