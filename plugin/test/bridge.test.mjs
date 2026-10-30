@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import net from "node:net";
 import { once } from "node:events";
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { startBridge } from "../src/bridge.mjs";
 
 const extensionId = "a".repeat(32);
@@ -39,7 +39,7 @@ test("bridge shutdown completes with a browser connection that has not finished 
     await closing;
   }
 });
-function rejectedPeer(port, { origin = `chrome-extension://${extensionId}`, hello } = {}) {
+function rejectedPeer(port, { origin = `chrome-extension://${extensionId}`, hello, onMessage } = {}) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/bridge`, { origin });
     const timer = setTimeout(() => {
@@ -52,6 +52,7 @@ function rejectedPeer(port, { origin = `chrome-extension://${extensionId}`, hell
       resolve(res.statusCode);
     });
     ws.on("error", () => {});
+    ws.on("message", (data) => onMessage?.(JSON.parse(data.toString())));
     ws.on("open", () => ws.send(JSON.stringify(hello)));
     ws.on("close", (code) => {
       clearTimeout(timer);
@@ -99,6 +100,107 @@ test("bridge rejects web origins, wrong extension identity, obsolete protocol, a
     assert.equal((await fetch(`http://127.0.0.1:${bridge.port}/`)).status, 404);
   } finally {
     await bridge.close();
+  }
+});
+
+test("registration errors distinguish extension identity, protocol and release with bounded redacted diagnostics", async () => {
+  const bridge = await startBridge({
+    port: 0,
+    extensionId,
+    extensionVersion: "0.2.1",
+    register() {
+      throw Error("must not register");
+    },
+    disconnected() {},
+    initialization() {
+      return false;
+    },
+  });
+  const hello = {
+    type: "modcdp.reverse.hello",
+    version: 2,
+    extension_id: extensionId,
+    extension_version: "0.2.1",
+    launch_token: "f".repeat(64),
+    name: "private profile",
+  };
+  try {
+    for (const [changes, reason] of [
+      [{ extension_id: "b".repeat(32) }, "identity_mismatch"],
+      [{ version: 1 }, "protocol_mismatch"],
+      [{ extension_version: "0.2.0" }, "extension_update_required"],
+    ]) {
+      let message;
+      assert.equal(
+        await rejectedPeer(bridge.port, {
+          hello: { ...hello, ...changes },
+          onMessage: (value) => {
+            message = value;
+          },
+        }),
+        1008,
+      );
+      assert.equal(message.reason, reason);
+      assert.match(message.message, /cdpHelper 浏览器扩展/);
+      assert.equal(message.required_extension_version, "0.2.1");
+      assert.ok(!JSON.stringify(message).includes(hello.launch_token));
+    }
+    for (let index = 0; index < 24; index++)
+      await rejectedPeer(bridge.port, { hello: { ...hello, extension_version: `0.0.${index}` } });
+    assert.equal(bridge.rejections.length, 20);
+    const diagnostics = JSON.stringify(bridge.rejections);
+    assert.ok(!diagnostics.includes(hello.launch_token));
+    assert.ok(!diagnostics.includes(hello.name));
+    assert.ok(!diagnostics.includes("/bridge"));
+    let pluginIssue;
+    await rejectedPeer(bridge.port, {
+      hello: { ...hello, extension_version: "0.3.0" },
+      onMessage: (value) => {
+        pluginIssue = value;
+      },
+    });
+    assert.equal(pluginIssue.component, "cdpHelper plugin");
+    assert.equal(pluginIssue.required_action, "plugin_update_or_reload");
+    assert.match(pluginIssue.message, /仅重连 MCP/);
+    assert.match(pluginIssue.message, /浏览器扩展为 0\.3\.0/);
+    assert.ok(!pluginIssue.message.includes("替换文件"));
+  } finally {
+    await bridge.close();
+  }
+});
+
+test("one successful profile does not erase another profile's version rejection", async () => {
+  const upstream = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await once(upstream, "listening");
+  const bridge = await startBridge({
+    port: 0,
+    extensionId,
+    extensionVersion: "0.2.1",
+    register: () => ({
+      endpoint: `ws://127.0.0.1:${upstream.address().port}`,
+      registration: { type: "snow.bridge.registered" },
+    }),
+    disconnected() {},
+    initialization() {
+      return false;
+    },
+  });
+  let peer;
+  try {
+    const hello = { type: "modcdp.reverse.hello", version: 2, extension_id: extensionId, extension_version: "0.2.0" };
+    await rejectedPeer(bridge.port, { hello });
+    assert.equal(bridge.rejections.length, 1);
+    peer = new WebSocket(`ws://127.0.0.1:${bridge.port}/bridge`, { origin: `chrome-extension://${extensionId}` });
+    await once(peer, "open");
+    const registration = once(peer, "message");
+    peer.send(JSON.stringify({ ...hello, extension_version: "0.2.1" }));
+    await registration;
+    assert.equal(bridge.rejections.length, 1);
+  } finally {
+    peer?.terminate();
+    await bridge.close();
+    for (const connection of upstream.clients) connection.terminate();
+    await new Promise((resolve) => upstream.close(resolve));
   }
 });
 

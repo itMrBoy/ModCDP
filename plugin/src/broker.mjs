@@ -7,10 +7,25 @@ import { startProxy } from "../../js/src/proxy/proxy.ts";
 import { launchIsolated, cleanIsolated, isolatedRunning } from "./isolated.mjs";
 import { parseTool } from "./tools.mjs";
 import { startBridge } from "./bridge.mjs";
+import { PageControl } from "./control.mjs";
+import { Diagnostics } from "./diagnostics.mjs";
+import { evaluatePage } from "./evaluate.mjs";
 
 const ordinary = (page) => /^(https?:\/\/|about:blank$)/i.test(page.url());
 const secret = () => randomBytes(32).toString("hex");
 const log = { log: (...args) => console.error(...args), error: (...args) => console.error(...args) };
+const actionLabels = {
+  browser_navigate: "正在打开页面",
+  browser_snapshot: "正在读取页面",
+  browser_screenshot: "正在截图",
+  browser_click: "正在点击",
+  browser_fill: "正在填写",
+  browser_press: "正在按键",
+  browser_wait: "正在等待",
+  browser_evaluate: "正在执行页面脚本",
+  browser_diagnostics_start: "正在开始诊断",
+  browser_performance_trace_start: "正在开始性能录制",
+};
 async function json(file, fallback) {
   try {
     return JSON.parse(await readFile(file, "utf8"));
@@ -24,11 +39,12 @@ export class BrowserBroker {
   constructor({
     home,
     extensionId,
-    extensionVersion = "0.1.1",
+    extensionVersion = "0.2.0",
     bridgePort = 29393,
-    releaseUrl = "https://github.com/itMrBoy/cdpHelper/releases/tag/v0.1.1",
+    releaseUrl = "https://github.com/itMrBoy/cdpHelper/releases/tag/v0.2.0",
     checkIsolated = isolatedRunning,
     connect = (endpoint) => chromium.connectOverCDP(endpoint, { noDefaults: true, timeout: 15000 }),
+    controlFactory = (page, options) => PageControl.create(page, options),
   }) {
     this.home = home;
     this.extensionId = extensionId;
@@ -37,13 +53,20 @@ export class BrowserBroker {
     this.releaseUrl = releaseUrl;
     this.checkIsolated = checkIsolated;
     this.connect = connect;
+    this.controlFactory = controlFactory;
+    this.diagnostics = new Diagnostics({ home });
     this.sessions = new Map();
     this.instances = new Map();
+    this.nextDisplayNumber = 1;
     this.tabs = new Map();
     this.records = [];
     this.recordsQueue = Promise.resolve();
     this.pendingTokens = new Set();
     this.disposals = new Set();
+    this.cleanups = new Set();
+  }
+  get rejectedExtensions() {
+    return this.bridge?.rejections ?? [];
   }
   async init() {
     await mkdir(this.home, { recursive: true, mode: 0o700 });
@@ -97,16 +120,112 @@ export class BrowserBroker {
   async dropSession(id) {
     const session = this.sessions.get(id);
     if (!session) return;
-    await session.queue.catch(() => {});
-    for (const tab of this.tabs.values()) if (tab.owner === id) tab.owner = null;
     this.sessions.delete(id);
+    await this.releaseSessionTabs(id, "session_ended");
+    await this.diagnostics.dropSession(id);
+  }
+  trackCleanup(promise) {
+    const pending = Promise.resolve(promise).catch((error) => log.error("cdpHelper cleanup:", error.message));
+    this.cleanups.add(pending);
+    void pending.finally(() => this.cleanups.delete(pending));
+    return pending;
+  }
+  async revokeTab(tab, reason = "released", manual = false) {
+    const controller = tab.control;
+    tab.owner = null;
+    tab.generation++;
+    tab.control = null;
+    if (manual) tab.stoppedByUser = true;
+    tab.abort?.abort(
+      new Error("Page control was stopped or released. In-flight effects may continue; do not retry automatically."),
+    );
+    tab.abort = null;
+    const cleanup = Promise.allSettled([controller?.dispose(), this.diagnostics.releaseTab(tab.id, reason)]);
+    tab.revoking = this.trackCleanup(cleanup);
+    await tab.revoking;
+  }
+  async releaseSessionTabs(owner, reason) {
+    await Promise.all(
+      [...this.tabs.values()].filter((tab) => tab.owner === owner).map((tab) => this.revokeTab(tab, reason)),
+    );
+  }
+  assertLease(session, tab, generation) {
+    if (
+      !this.sessions.has(session.id) ||
+      this.tabs.get(tab.id) !== tab ||
+      tab.owner !== session.id ||
+      tab.instance !== session.instance ||
+      tab.generation !== generation ||
+      tab.abort?.signal.aborted
+    )
+      throw new Error(
+        "Page control expired or was stopped. Old queued operations cannot resume; bind again only with user authorization.",
+      );
+  }
+  async bindTab(session, tab, resume = false) {
+    if (!tab || tab.instance !== session.instance || tab.page.isClosed())
+      throw new Error("Invalid tab for selected browser.");
+    if (tab.owner && tab.owner !== session.id) throw new Error("Tab is busy in another session.");
+    if (tab.stoppedByUser && !resume)
+      throw new Error(
+        "The user stopped control. Only after an explicit request to resume, bind with resume_after_user_stop: true.",
+      );
+    if (tab.owner === session.id && tab.control) {
+      const generation = tab.generation;
+      await tab.control.ensure();
+      this.assertLease(session, tab, generation);
+      return;
+    }
+    await tab.revoking;
+    if (!this.sessions.has(session.id) || tab.page.isClosed())
+      throw new Error("Session or tab expired during binding.");
+    if (tab.owner && tab.owner !== session.id) throw new Error("Tab is busy in another session.");
+    if (tab.stoppedByUser && !resume) throw new Error("The user stopped control. Explicit resumption is required.");
+    tab.owner = session.id;
+    const generation = ++tab.generation;
+    tab.abort = new AbortController();
+    try {
+      const controller = await this.controlFactory(tab.page, {
+        generation,
+        displayNumber: this.instances.get(tab.instance)?.displayNumber,
+        onStop: () => {
+          if (tab.owner === session.id && tab.generation === generation) void this.revokeTab(tab, "user_stopped", true);
+        },
+      });
+      try {
+        this.assertLease(session, tab, generation);
+      } catch (error) {
+        await controller.dispose();
+        throw error;
+      }
+      tab.control = controller;
+      tab.stoppedByUser = false;
+    } catch (error) {
+      if (tab.generation === generation) await this.revokeTab(tab, "indicator_failed");
+      throw error;
+    }
   }
   async call(id, name, input) {
     const args = parseTool(name, input);
     const session = this.session(id);
+    // Capture the lease when enqueued, not when executed: release/rebind must
+    // never resurrect operations submitted under an earlier control generation.
+    const tab = args.tab_id ? this.tabs.get(args.tab_id) : null;
+    const generation = tab?.generation;
+    const instance = session.instance;
     session.lastSeen = Date.now();
     session.active++;
-    const operation = session.queue.catch(() => {}).then(() => this.execute(session, name, args));
+    const operation = session.queue
+      .catch(() => {})
+      .then(() => {
+        if (!this.sessions.has(id)) throw new Error("Session expired.");
+        if (
+          args.tab_id &&
+          (session.instance !== instance || !tab || this.tabs.get(args.tab_id) !== tab || tab.generation !== generation)
+        )
+          throw new Error("Tab control expired or changed while this operation was queued.");
+        return this.execute(session, name, args);
+      });
     session.queue = operation;
     try {
       return await operation;
@@ -151,10 +270,12 @@ export class BrowserBroker {
         key = randomUUID();
         short = key.replaceAll("-", "").slice(0, 8);
       } while ([...this.instances.values()].some((i) => i.short === short));
+      const displayNumber = this.nextDisplayNumber++;
       const instance = {
         key,
         short,
-        name: hello.name?.trim() || "cdpHelper " + short,
+        displayNumber,
+        name: hello.name?.trim() || "浏览器 " + displayNumber,
         proxy,
         record,
         peer,
@@ -180,6 +301,7 @@ export class BrowserBroker {
         type: "snow.bridge.registered",
         instance_id: key,
         short_id: short,
+        display_number: displayNumber,
         name: instance.name,
         owned: Boolean(record),
       };
@@ -194,7 +316,11 @@ export class BrowserBroker {
   async detach(instance) {
     if (instance.disposing) return instance.disposing;
     this.instances.delete(instance.key);
-    for (const [id, tab] of this.tabs) if (tab.instance === instance.key) this.tabs.delete(id);
+    for (const [id, tab] of this.tabs)
+      if (tab.instance === instance.key) {
+        this.trackCleanup(this.revokeTab(tab, "instance_disconnected"));
+        this.tabs.delete(id);
+      }
     const disposing = (async () => {
       instance.peer?.close();
       await instance.browser?.close().catch(() => {});
@@ -212,6 +338,7 @@ export class BrowserBroker {
     return {
       instance_id: instance.key,
       short_id: instance.short,
+      display_number: instance.displayNumber,
       name: instance.name,
       mode: instance.record ? "isolated" : "reuse",
       ...(instance.record ? { owned_instance_id: instance.record.instance_id } : {}),
@@ -259,7 +386,11 @@ export class BrowserBroker {
           instance.browser = browser;
           browser.on("disconnected", () => {
             instance.browser = null;
-            for (const [id, tab] of this.tabs) if (tab.instance === instance.key) this.tabs.delete(id);
+            for (const [id, tab] of this.tabs)
+              if (tab.instance === instance.key) {
+                this.trackCleanup(this.revokeTab(tab, "browser_disconnected"));
+                this.tabs.delete(id);
+              }
           });
           const context = browser.contexts()[0];
           if (!context) throw new Error("The selected browser has no default context.");
@@ -291,8 +422,12 @@ export class BrowserBroker {
   register(page, instance) {
     for (const [id, tab] of this.tabs) if (tab.page === page) return id;
     const id = randomUUID();
-    this.tabs.set(id, { page, instance, owner: null });
-    page.once("close", () => this.tabs.delete(id));
+    const tab = { id, page, instance, owner: null, generation: 0, control: null, abort: null, stoppedByUser: false };
+    this.tabs.set(id, tab);
+    page.once("close", () => {
+      this.trackCleanup(this.revokeTab(tab, "page_closed"));
+      this.tabs.delete(id);
+    });
     return id;
   }
   owned(session, id) {
@@ -309,6 +444,7 @@ export class BrowserBroker {
     return page.locator(target.selector);
   }
   async execute(session, name, args) {
+    if (args.capture_id || args.trace_id) return this.diagnostics.call(session.id, name, args);
     if (name === "browser_status")
       return {
         selected: session.instance,
@@ -318,6 +454,7 @@ export class BrowserBroker {
           .filter((r) => ![...this.sessions.values()].some((s) => s.isolation === r.instance_id))
           .map((r) => ({ instance_id: r.instance_id, profile: r.profile, pid: r.pid })),
         selection_required: !this.instances.has(session.instance) && !session.pending,
+        extension_issues: this.rejectedExtensions,
         bridge: { listening: true, endpoint: "ws://127.0.0.1:" + this.bridge.port + "/bridge", protocol_version: 2 },
         setup:
           "Download the matching extension Release separately, unzip it, and manually load extension/ in the target Snow window, or enable its profile-distributed copy. The plugin never installs or copies extensions.",
@@ -346,7 +483,7 @@ export class BrowserBroker {
             "Instance is not connected. List browser_status and select an existing instance; no fallback was attempted.",
           );
         if (instance.record?.closing) throw new Error("Isolated instance cleanup is in progress.");
-        for (const tab of this.tabs.values()) if (tab.owner === session.id) tab.owner = null;
+        await this.releaseSessionTabs(session.id, "instance_switched");
         session.instance = instance.key;
         session.isolation = instance.record?.instance_id ?? null;
         return this.describe(instance);
@@ -358,7 +495,7 @@ export class BrowserBroker {
       this.records.push(launch);
       session.pending = key;
       session.isolation = key;
-      for (const tab of this.tabs.values()) if (tab.owner === session.id) tab.owner = null;
+      await this.releaseSessionTabs(session.id, "instance_switched");
       session.instance = null;
       try {
         const { record } = await launchIsolated(
@@ -396,7 +533,7 @@ export class BrowserBroker {
           throw new Error("Another session is using this isolated instance. Release its selection before cleanup.");
         await this.cleanup(record.instance_id);
       }
-      for (const tab of this.tabs.values()) if (tab.owner === session.id) tab.owner = null;
+      await this.releaseSessionTabs(session.id, "browser_finished");
       const key = session.instance ?? session.pending;
       session.instance = null;
       session.pending = null;
@@ -421,6 +558,7 @@ export class BrowserBroker {
                 url: page.url(),
                 title,
                 ownership: tab.owner === session.id ? "mine" : tab.owner ? "busy" : "available",
+                stopped_by_user: tab.stoppedByUser,
               };
             }),
         ),
@@ -428,24 +566,67 @@ export class BrowserBroker {
     if (name === "browser_new_tab") {
       const page = await context.newPage();
       const id = this.register(page, session.instance);
-      this.tabs.get(id).owner = session.id;
+      await this.bindTab(session, this.tabs.get(id));
       return { tab_id: id };
     }
     if (name === "browser_bind") {
-      const tab = this.tabs.get(args.tab_id);
-      if (!tab || tab.instance !== session.instance || tab.page.isClosed())
-        throw new Error("Invalid tab for selected browser.");
-      if (tab.owner && tab.owner !== session.id) throw new Error("Tab is busy in another session.");
-      tab.owner = session.id;
+      await this.bindTab(session, this.tabs.get(args.tab_id), args.resume_after_user_stop);
       return { bound: args.tab_id };
     }
-    const page = this.owned(session, args.tab_id);
+    this.owned(session, args.tab_id);
+    const tab = this.tabs.get(args.tab_id);
     if (name === "browser_release") {
-      this.tabs.get(args.tab_id).owner = null;
+      await this.revokeTab(tab);
       return { released: args.tab_id };
     }
+    const generation = tab.generation;
+    const signal = tab.abort.signal;
+    const guard = () => this.assertLease(session, tab, generation);
+    let abortListener;
+    try {
+      return await Promise.race([
+        (async () => {
+          guard();
+          await tab.control.ensure();
+          guard();
+          await tab.control.update({ action: actionLabels[name] ?? "正在操作" });
+          guard();
+          const result = await this.executePage(session, tab, name, args, guard);
+          guard();
+          return result;
+        })(),
+        new Promise((_, reject) => {
+          abortListener = () => reject(signal.reason);
+          signal.addEventListener("abort", abortListener, { once: true });
+          if (signal.aborted) abortListener();
+        }),
+      ]);
+    } finally {
+      signal.removeEventListener("abort", abortListener);
+      if (tab.generation === generation && tab.control) this.trackCleanup(tab.control.update({ action: null }));
+    }
+  }
+  async executePage(session, tab, name, args, guard) {
+    const page = tab.page;
+    if (name === "browser_evaluate") return evaluatePage(page, args);
+    if (name === "browser_diagnostics_start")
+      return this.diagnostics.start(session.id, {
+        tab_id: tab.id,
+        instance_id: tab.instance,
+        page,
+        duration_ms: args.duration_ms,
+      });
+    if (name === "browser_performance_trace_start")
+      return this.diagnostics.startTrace(session.id, {
+        tab_id: tab.id,
+        instance_id: tab.instance,
+        page,
+        duration_ms: args.duration_ms,
+      });
     if (name === "browser_navigate") {
       await page.goto(args.url, { waitUntil: "domcontentloaded" });
+      guard();
+      await tab.control.ensure();
       return { url: page.url() };
     }
     if (name === "browser_snapshot")
@@ -456,6 +637,17 @@ export class BrowserBroker {
       };
     if (name === "browser_screenshot") return { image: (await page.screenshot({ timeout: 10000 })).toString("base64") };
     const locator = this.locator(page, args.target);
+    if (["browser_click", "browser_fill", "browser_press"].includes(name)) {
+      if (name === "browser_click") {
+        // Measure the position Playwright will click, after its normal scroll.
+        await locator.scrollIntoViewIfNeeded({ timeout: 10000 });
+        guard();
+      }
+      const box = await locator.boundingBox({ timeout: 1000 }).catch(() => null);
+      guard();
+      await tab.control.update({ action: actionLabels[name], box });
+      guard();
+    }
     if (name === "browser_click") await locator.click();
     else if (name === "browser_fill") await locator.fill(args.value);
     else if (name === "browser_press") await locator.press(args.key);
@@ -478,8 +670,11 @@ export class BrowserBroker {
     return { closed_and_cleaned: id };
   }
   async close() {
+    await Promise.all([...this.sessions.keys()].map((id) => this.dropSession(id)));
+    await this.diagnostics.close();
     await this.bridge?.close();
     await Promise.all([...this.instances.values()].map((i) => this.detach(i)));
     await Promise.allSettled([...this.disposals]);
+    await Promise.allSettled([...this.cleanups]);
   }
 }

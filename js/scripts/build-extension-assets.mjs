@@ -39,6 +39,7 @@ const copy = (from, to) => {
 };
 
 copy("extension/manifest.json", "dist/extension/manifest.json");
+copy("extension/icons/logo.png", "dist/extension/icons/logo.png");
 if (values["cdphelper-plugin"]) {
   const { version } = JSON.parse(fs.readFileSync(path.join(root, "plugin/version.json"), "utf8"));
   const manifestFile = path.join(dist_extension, "manifest.json");

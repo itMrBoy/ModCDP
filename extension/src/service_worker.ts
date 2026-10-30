@@ -3,7 +3,11 @@
 // Extension service worker entry point.
 
 import { ModCDPServer } from "../../js/src/server/ModCDPServer.js";
-import type { ReverseWSBridgeOptions } from "../../js/src/transport/ReverseWSDownstreamTransport.js";
+import type {
+  ReverseWSBridgeOptions,
+  ReverseWSRegistrationError,
+} from "../../js/src/transport/ReverseWSDownstreamTransport.js";
+import { instanceAppearance, instanceDisplayNumber, instanceLabel } from "./instanceDisplay.js";
 
 declare const __MODCDP_ENABLE_REVERSEWS__: boolean;
 declare const __MODCDP_ENABLE_NATS__: boolean;
@@ -11,6 +15,27 @@ declare const __CDPHELPER_PLUGIN_BRIDGE__: boolean;
 
 const snowPlugin = typeof __CDPHELPER_PLUGIN_BRIDGE__ !== "undefined" && __CDPHELPER_PLUGIN_BRIDGE__;
 const defaultSnowBridgeUrl = "ws://127.0.0.1:29393/bridge";
+
+async function updateInstanceBadge(registration: { name?: unknown; display_number?: unknown } | null) {
+  const number = registration && instanceDisplayNumber(registration);
+  const appearance = instanceAppearance(number);
+  // Display failures must not prevent registration, storage updates or owned-token retention.
+  for (const update of [
+    () => chrome.action.setBadgeBackgroundColor({ color: appearance.background }),
+    () => chrome.action.setBadgeTextColor({ color: appearance.foreground }),
+    () => chrome.action.setBadgeText({ text: number ? String(number) : "" }),
+    () =>
+      chrome.action.setTitle({
+        title: registration ? `cdpHelper · ${instanceLabel(registration)} · 已连接` : "cdpHelper · 未连接",
+      }),
+  ]) {
+    try {
+      await update();
+    } catch (error) {
+      console.error("cdpHelper badge update failed:", error);
+    }
+  }
+}
 
 function snowBridgeUrl(value: unknown) {
   const endpoint = typeof value === "string" && value ? value : defaultSnowBridgeUrl;
@@ -35,9 +60,10 @@ async function start() {
   let endpoint: string | undefined;
   let bridge: ReverseWSBridgeOptions | undefined;
   if (snowPlugin) {
+    await updateInstanceBadge(null);
+    await chrome.storage.session.set({ snowBridgeState: { connected: false } });
     // Settings belong to this profile, never to the shared extension directory.
     const settings = await chrome.storage.local.get(["snowBridgeUrl", "snowInstanceName", "snowOwnedLaunchToken"]);
-    await chrome.storage.session.set({ snowBridgeState: { connected: false } });
     const url = snowBridgeUrl(settings.snowBridgeUrl);
     endpoint = url.href;
     const initializeOrigin = `http://${url.host}`;
@@ -83,6 +109,7 @@ async function start() {
     const name = typeof settings.snowInstanceName === "string" ? settings.snowInstanceName.trim().slice(0, 80) : "";
     // Serialize updates so an old registration cannot overwrite a later disconnect.
     let stateWrite = Promise.resolve();
+    let registrationError: ReverseWSRegistrationError | null = null;
     bridge = {
       hello: {
         version: 2,
@@ -94,12 +121,33 @@ async function start() {
         stateWrite = stateWrite
           .catch(() => {})
           .then(async () => {
+            if (registration) registrationError = null;
             await chrome.storage.session.set({
-              snowBridgeState: registration ? { connected: true, ...registration } : { connected: false },
+              snowBridgeState: registration
+                ? { connected: true, ...registration }
+                : {
+                    connected: false,
+                    ...(registrationError
+                      ? { error: registrationError.message, registration_error: registrationError }
+                      : {}),
+                  },
             });
+            await updateInstanceBadge(registration);
             if (registration?.owned && launchToken) {
               await chrome.storage.local.set({ snowOwnedLaunchToken: launchToken });
             }
+          });
+        return stateWrite;
+      },
+      onRegistrationError(error) {
+        stateWrite = stateWrite
+          .catch(() => {})
+          .then(async () => {
+            registrationError = error;
+            await chrome.storage.session.set({
+              snowBridgeState: { connected: false, error: error.message, registration_error: error },
+            });
+            await updateInstanceBadge(null);
           });
         return stateWrite;
       },

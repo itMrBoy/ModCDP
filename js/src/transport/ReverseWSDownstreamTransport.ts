@@ -25,14 +25,35 @@ const ReverseWSRegistrationSchema = z.object({
   type: z.literal("snow.bridge.registered"),
   instance_id: z.string().uuid(),
   short_id: z.string().regex(/^[a-zA-Z0-9]{8}$/),
+  display_number: z.number().int().positive().optional(),
   name: z.string(),
   owned: z.boolean(),
 });
 
 export type ReverseWSRegistration = z.infer<typeof ReverseWSRegistrationSchema>;
+const ReverseWSRegistrationErrorSchema = z.object({
+  type: z.literal("modcdp.reverse.registration_error"),
+  reason: z.enum(["identity_mismatch", "protocol_mismatch", "extension_update_required"]),
+  component: z.enum(["cdpHelper 浏览器扩展", "cdpHelper plugin"]),
+  required_action: z.enum([
+    "plugin_update_or_reload",
+    "extension_update",
+    "extension_reinstall",
+    "plugin_and_extension_update",
+  ]),
+  plugin_version: z.string().max(80),
+  required_plugin_version: z.string().max(80),
+  actual_extension_version: z.string().max(80).nullable(),
+  required_extension_version: z.string().max(80),
+  actual_protocol_version: z.number().int().nullable(),
+  required_protocol_version: z.literal(2),
+  message: z.string().max(4096),
+});
+export type ReverseWSRegistrationError = z.infer<typeof ReverseWSRegistrationErrorSchema>;
 export type ReverseWSBridgeOptions = {
   hello: { version: 2; extension_version?: string; name?: string; launch_token?: string };
   onRegistration?: (registration: ReverseWSRegistration | null) => void | Promise<void>;
+  onRegistrationError?: (error: ReverseWSRegistrationError) => void | Promise<void>;
 };
 
 /**
@@ -228,6 +249,17 @@ class ReverseWSDownstreamTransport extends DownstreamTransport {
           return;
         }
         this.notifyRegistration(registration.data);
+        return;
+      }
+      if ((data as { type?: string })?.type === "modcdp.reverse.registration_error") {
+        const error = ReverseWSRegistrationErrorSchema.safeParse(data);
+        if (!this.bridge || !error.success) {
+          ws.close(1008, "Invalid bridge registration error");
+          return;
+        }
+        void Promise.resolve(this.bridge.onRegistrationError?.(error.data)).catch((failure) =>
+          console.error("ModCDP bridge registration error:", failure),
+        );
         return;
       }
       if ((data as { type?: string })?.type === "modcdp.reverse.client.closed") {

@@ -97,7 +97,7 @@ NATS 可通过 `--enable-nats` 开启，也可与 `--enable-reversews` 同时传
 
 生产运行时和依赖以经过校验的 `runtime.pack.gz` 构建产物交付；启动器使用 Node 将已校验文件释放到用户本机运行时缓存，无需 npm 或网络。两个仓库均不跟踪展开的 `node_modules/` 目录，第三方许可证保留在运行时包内。
 
-每会话首次操作先调用 `browser_status`，展示已有实例的名称、短编号与状态，再在同一个问题中让用户选已有实例或启动新的隔离实例；不先泛问模式。普通 profile 统一通过 `127.0.0.1:29393/bridge` 登记；`browser_status` 返回带短编号的 inventory，用户选定后，技能映射为 UUID，调用 `browser_select({mode:"reuse",instance_id:"<UUID>"})`。隔离模式使用 `browser_select({mode:"isolated"})` 请求独立 profile，以一次性启动 URL 关联扩展。URL 只证明启动意图，不证明真实隔离：雪诺可能退出新进程或将 URL 打开到原有窗口。接入带隔离 nonce 的连接及每次自有实例网页操作前，Broker 都核验实际可执行文件与精确 profile 参数对应的存活进程；失败则 detach，不发送页面操作。目前该核验仅实现于 Windows，其他平台隔离模式保持不可验证并拒绝操作，复用不受影响。真实雪诺隔离验收尚未通过。两种模式都通过 Playwright 操作网页，Computer Use 只可启动雪诺。
+每会话首次操作先调用 `browser_status`，展示已有实例的名称、显示编号与状态，再在同一个问题中让用户选已有实例或启动新的隔离实例；不先泛问模式。普通 profile 统一通过 `127.0.0.1:29393/bridge` 登记；`browser_status` 返回带 `display_number` 的 inventory，用户选定后，技能映射为 UUID，调用 `browser_select({mode:"reuse",instance_id:"<UUID>"})`。将扩展固定到工具栏，数字徽标与清单对应；未固定时在扩展选项页查看同一编号。扩展登记成功即显示徽标，无需先选择或操作浏览器。未命名显示“浏览器 1”，同名实例通过编号区分；断线清空徽标，重连换号，后台重启重新计数。同一 profile 多个窗口共用编号，不为识别实例额外采集页面标题或网址。隔离模式使用 `browser_select({mode:"isolated"})` 请求独立 profile，以一次性启动 URL 关联扩展。URL 只证明启动意图，不证明真实隔离：雪诺可能退出新进程或将 URL 打开到原有窗口。接入带隔离 nonce 的连接及每次自有实例网页操作前，Broker 都核验实际可执行文件与精确 profile 参数对应的存活进程；失败则 detach，不发送页面操作。目前该核验仅实现于 Windows，其他平台隔离模式保持不可验证并拒绝操作，复用不受影响。真实雪诺隔离验收尚未通过。两种模式都通过 Playwright 操作网页，Computer Use 只可启动雪诺。
 
 不同标签页可以并行，同一标签页由一个会话独占。断线后旧引用失效，重新读取 inventory 并按用户明确选择实例，再发现和绑定页面，不自动 rebind 或重放提交。离开隔离实例前询问是否关闭并清理；未明确同意和异常断开均保留。复用浏览器与标签页始终保留。安装、升级及源码兼容入口见 [连接说明](plugin/skills/cdphelper/references/setup.md)。不发布自有 npm 包；技术校验和测试通过不代表已取得上游分发授权。
 

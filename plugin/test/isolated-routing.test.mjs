@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -9,6 +9,7 @@ import { WebSocket } from "ws";
 import { build } from "esbuild";
 
 const extensionId = "a".repeat(32);
+const { version: extensionVersion } = JSON.parse(await readFile("plugin/version.json", "utf8"));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(check) {
   const deadline = Date.now() + 5000;
@@ -28,7 +29,7 @@ function peer(port, launch_token) {
         JSON.stringify({
           type: "modcdp.reverse.hello",
           version: 2,
-          extension_version: "0.1.1",
+          extension_version: extensionVersion,
           extension_id: extensionId,
           ...(launch_token ? { launch_token } : {}),
         }),
@@ -70,6 +71,7 @@ test(
     const broker = new BrowserBroker({
       home: scratch,
       extensionId,
+      extensionVersion,
       bridgePort: 0,
       // Deliberately injected process fixture. This does not prove real Snow ownership.
       checkIsolated: async () => {

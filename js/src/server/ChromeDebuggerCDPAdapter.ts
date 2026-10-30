@@ -26,6 +26,8 @@ export class ChromeDebuggerCDPAdapter {
   private readonly autoAttach = new Map<string | null, AttachOptions>();
   private readonly discovering = new Map<string | null, cdp.types.ts.Target.TargetFilter | undefined>();
   private known = new Map<string, TargetInfo>();
+  private readonly tabIdByTarget = new Map<string, number>();
+  private refreshPromise: Promise<void> = Promise.resolve();
   private started = false;
   private resetPromise: Promise<void> = Promise.resolve();
   private readonly browserTarget: TargetInfo = {
@@ -88,10 +90,17 @@ export class ChromeDebuggerCDPAdapter {
     const tabs = await chrome.tabs.query({});
     const normalTabs = new Set(tabs.filter((tab) => !tab.incognito).map((tab) => tab.id));
     const nativeTargets = await chrome.debugger.getTargets();
+    for (const target of nativeTargets) {
+      if (typeof target.tabId === "number" && normalTabs.has(target.tabId))
+        this.tabIdByTarget.set(target.id, target.tabId);
+    }
+    for (const [targetId, tabId] of this.tabIdByTarget) {
+      if (!normalTabs.has(tabId)) this.tabIdByTarget.delete(targetId);
+    }
     const accessible = new Set(
       nativeTargets.filter((target) => normalTabs.has(target.tabId)).map((target) => target.id),
     );
-    return (await this.upstream.getTargets())
+    const targets: TargetInfo[] = (await this.upstream.getTargets())
       .filter(
         (target) =>
           accessible.has(target.targetId) &&
@@ -99,9 +108,31 @@ export class ChromeDebuggerCDPAdapter {
           /^(https?:|file:|about:blank(?:[?#]|$))/.test(target.url),
       )
       .map((target) => ({ ...target, browserContextId: "modcdp-default" }));
+    const present = new Set(targets.map((target) => target.targetId));
+    // chrome.debugger target enumeration can briefly omit a live tab during
+    // navigation. A missing native snapshot is not a page-close notification.
+    for (const target of this.known.values()) {
+      if (present.has(target.targetId)) continue;
+      const tabId = this.tabIdByTarget.get(target.targetId);
+      const tab = tabs.find((candidate) => candidate.id === tabId && !candidate.incognito);
+      if (!tab || !/^(https?:|file:|about:blank(?:[?#]|$))/.test(tab.url ?? "")) continue;
+      const native = nativeTargets.find((candidate) => candidate.id === target.targetId);
+      if (native?.url && !/^(https?:|file:|about:blank(?:[?#]|$))/.test(native.url)) continue;
+      targets.push({ ...target, url: tab.url!, title: tab.title ?? target.title });
+    }
+    return targets;
   }
 
-  private async refresh() {
+  private refresh() {
+    // Tab events and Target.createTarget can request discovery concurrently.
+    // Serialize the entire snapshot/attach/diff operation so an older snapshot
+    // cannot forget a page that a newer refresh has just attached.
+    const pending = this.refreshPromise.then(() => this.refreshOnce());
+    this.refreshPromise = pending.catch(() => {});
+    return pending;
+  }
+
+  private async refreshOnce() {
     if (!this.autoAttach.size && !this.discovering.size) return;
     const targets = await this.targets();
     const previous = this.known;
@@ -236,6 +267,7 @@ export class ChromeDebuggerCDPAdapter {
     this.autoAttach.clear();
     this.discovering.clear();
     this.resetPromise = this.resetPromise.then(async () => {
+      await this.refreshPromise;
       await Promise.allSettled([...this.attaching.values()]);
       // Detaching a root releases its debugger and paused children. Do not send
       // Runtime commands to every page first: an unresponsive renderer must not
@@ -249,6 +281,7 @@ export class ChromeDebuggerCDPAdapter {
       );
       this.owned.clear();
       this.known.clear();
+      this.tabIdByTarget.clear();
     });
     await this.resetPromise;
   }

@@ -8,12 +8,13 @@ import { execFileSync } from "node:child_process";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import http from "node:http";
 
 const source = path.resolve("dist/plugin-marketplace/plugins/cdphelper");
-async function client(plugin, home) {
+async function client(plugin, home, bridgePort = "0") {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [path.join(plugin, "launch.mjs"), "--home", home, "--bridge-port", "0"],
+    args: [path.join(plugin, "launch.mjs"), "--home", home, "--bridge-port", bridgePort],
     stderr: "pipe",
     env: { ...process.env, NODE_PATH: "" },
   });
@@ -41,10 +42,38 @@ async function retire(home) {
     await fetch(`http://127.0.0.1:${meta.port}/rpc`, {
       method: "POST",
       headers: { authorization: `Bearer ${meta.token}` },
-      body: JSON.stringify({ operation: "retire" }),
+      body: JSON.stringify({
+        operation: "retire",
+        expected_runtime: meta.runtime,
+        target_runtime: "99.0.0:test-cleanup",
+      }),
     });
   } catch {}
 }
+
+test(
+  "MCP tool discovery survives an unavailable bridge; status reports failure without an empty inventory",
+  { timeout: 60000 },
+  async () => {
+    const scratch = await mkdtemp(path.join(tmpdir(), "cdphelper-unavailable-"));
+    const occupied = http.createServer((_req, res) => res.writeHead(404).end());
+    await new Promise((resolve) => occupied.listen(0, "127.0.0.1", resolve));
+    let connection;
+    try {
+      connection = await client(source, scratch, String(occupied.address().port));
+      assert.equal((await connection.listTools()).tools.length, 26);
+      const result = await status(connection);
+      assert.equal(result.runtime.state, "failed");
+      assert.equal(result.instances, null);
+      assert.match(result.runtime.message, /cdpHelper plugin/);
+      assert.ok(occupied.listening, "an unknown listener is never stopped");
+    } finally {
+      await connection?.close();
+      await new Promise((resolve) => occupied.close(resolve));
+      await rm(scratch, { recursive: true, force: true });
+    }
+  },
+);
 
 test(
   "portable packaged runtime starts offline without the development tree; two MCP clients share one authenticated daemon",
@@ -63,9 +92,26 @@ test(
       [a, b] = await Promise.all([client(plugin, home), client(plugin, home)]);
       const definitions = await a.listTools();
       assert.ok(definitions.tools.some((t) => t.name === "browser_select"));
-      assert.ok(!definitions.tools.some((t) => /run_code|evaluate/.test(t.name)));
+      for (const tool of definitions.tools) {
+        assert.equal(tool.inputSchema.type, "object", tool.name);
+        for (const keyword of ["oneOf", "anyOf", "allOf"]) {
+          assert.ok(!(keyword in tool.inputSchema), `${tool.name} has root-level ${keyword}`);
+        }
+      }
+      const selectionSchema = definitions.tools.find((t) => t.name === "browser_select").inputSchema;
+      assert.deepEqual(selectionSchema.properties.mode.enum, ["reuse", "isolated"]);
+      assert.deepEqual(selectionSchema.required, ["mode"]);
+      assert.equal(selectionSchema.properties.instance_id.type, "string");
+      assert.equal(selectionSchema.properties.executable.type, "string");
+      assert.equal(selectionSchema.additionalProperties, false);
+      assert.ok(!definitions.tools.some((t) => /run_code/.test(t.name)));
+      const evaluate = definitions.tools.find((t) => t.name === "browser_evaluate");
+      assert.ok(evaluate);
+      assert.equal(evaluate.annotations.readOnlyHint, false);
+      assert.equal(evaluate.annotations.destructiveHint, true);
       assert.ok(!definitions.tools.some((t) => /configure_extension/.test(t.name)));
       assert.equal((await status(a)).selection_required, true);
+      assert.equal((await status(b)).selection_required, true);
       const forbidden = await a.callTool({ name: "browser_tabs", arguments: {} });
       assert.equal(forbidden.isError, true);
       assert.match(forbidden.content[0].text, /select|choose/i);
@@ -163,7 +209,7 @@ test(
 );
 
 test(
-  "marketplace upgrade refuses to replace active old sessions, then applies a whole new runtime",
+  "marketplace upgrade keeps MCP ready, requires a notice, interrupts old sessions and prevents downgrade",
   { timeout: 60000 },
   async () => {
     const scratch = await mkdtemp(path.join(tmpdir(), "cdphelper-plugin-upgrade-"));
@@ -175,7 +221,7 @@ test(
       const packFile = path.join(next, "runtime.pack.gz");
       const packed = JSON.parse(gunzipSync(await readFile(packFile)).toString("utf8"));
       const build = JSON.parse(Buffer.from(packed["build.json"], "base64").toString("utf8"));
-      build.version = "0.1.2";
+      build.version = "9.9.9";
       build.digest = createHash("sha256").update("test runtime upgrade").digest("hex");
       const buildBytes = Buffer.from(JSON.stringify(build));
       packed["build.json"] = buildBytes.toString("base64");
@@ -189,14 +235,32 @@ test(
       artifact.files["runtime.pack.gz"] = createHash("sha256").update(archive).digest("hex");
       await writeFile(artifactFile, JSON.stringify(artifact));
       old = await client(source, home);
-      await assert.rejects(client(next, home), /older runtime still has active sessions/);
       assert.equal((await status(old)).selection_required, true);
-      await old.close();
-      old = null;
+      const oldMeta = JSON.parse(await readFile(path.join(home, "daemon.json"), "utf8"));
       upgraded = await client(next, home);
+      assert.ok((await upgraded.listTools()).tools.length > 20);
+      const pending = await status(upgraded);
+      assert.equal(pending.runtime.state, "upgrade_required");
+      assert.equal(pending.instances, null);
+      assert.equal(JSON.parse(await readFile(path.join(home, "daemon.json"), "utf8")).pid, oldMeta.pid);
+      const acknowledged = await upgraded.callTool({
+        name: "browser_status",
+        arguments: { acknowledge_upgrade_notice: pending.runtime.upgrade_notice_id },
+      });
+      assert.ok(!acknowledged.isError, acknowledged.content[0]?.text);
+      assert.equal(JSON.parse(acknowledged.content[0].text).runtime.state, "upgrading");
+      let completed;
+      for (let poll = 0; poll < 100; poll++) {
+        completed = await status(upgraded);
+        if (completed.runtime.state !== "upgrading") break;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      assert.equal(completed.runtime.state, "ready", JSON.stringify(completed));
       const meta = JSON.parse(await readFile(path.join(home, "daemon.json"), "utf8"));
-      assert.match(meta.runtime, /^0\.1\.2:/);
-      assert.ok((await readdir(path.join(home, "runtimes"))).some((v) => v.startsWith("0.1.2-")));
+      assert.match(meta.runtime, /^9\.9\.9:/);
+      assert.notEqual(meta.pid, oldMeta.pid);
+      assert.equal((await status(old)).runtime.state, "plugin_reload_required");
+      assert.ok((await readdir(path.join(home, "runtimes"))).some((v) => v.startsWith("9.9.9-")));
     } finally {
       await old?.close();
       await upgraded?.close();

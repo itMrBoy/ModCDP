@@ -55,6 +55,13 @@ test("notes use the source range, Chinese categories and relevant paths, not dis
   assert.ok(notes.includes(`/releases/tag/v0.1.1`));
   assert.match(notes, /extension\/ 子目录/);
   assert.match(notes, /无需 npm\/pnpm install/);
+  assert.ok(notes.includes("codex plugin marketplace upgrade cdphelper-plugins"));
+  assert.ok(notes.includes("codex plugin add cdphelper@cdphelper-plugins"));
+  assert.ok(notes.includes("claude plugin marketplace update cdphelper-plugins"));
+  assert.ok(notes.includes("claude plugin update cdphelper@cdphelper-plugins"));
+  assert.match(notes, /确认版本为 0\.1\.2/);
+  assert.match(notes, /更新 plugin 不会自动更新浏览器扩展/);
+  assert.match(notes, /仅重连 MCP 可能继续使用旧启动路径/);
   assert.match(notes, /真实雪诺隔离启动尚未通过验收/);
 });
 
