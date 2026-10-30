@@ -34,6 +34,8 @@ ReverseWS 在 Node 建立 listener，扩展连接后先发送 hello。hello 识�
 
 等待必须有界，关闭时取消等待者并清除计时器。Native Messaging 依赖宿主安装与协议；NATS 依赖其外部服务。声明某个 transport 可选或编译启用不代表这些前提已经满足。
 
+插件 bridge 的 `registration_error` 是独立于成功登记和 CDP 数据的控制消息。ReverseWS downstream 按专用 Schema 校验后通知登记错误回调，不能把它转发为页面协议事件或当作已连接实例。组件、版本与恢复动作由 bridge 提供，worker 负责保存显示；分类及后台升级状态归插件运行时所有。
+
 Pipe 使用 JSON 加 NUL 分帧，Native Messaging 使用小端长度前缀加 JSON；Node 的协议 stdio 不得混入普通日志。NATS 的 request/reply subject 与事件广播分开，不能把广播事件通路当作带关联的响应通路。
 
 ## 请求与事件不是同一种分发

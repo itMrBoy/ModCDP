@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 const bundled = path.resolve(".llmdoc-tmp/plugin-tests/broker-ownership.mjs");
 await build({
@@ -17,6 +19,101 @@ await build({
   logLevel: "silent",
 });
 const { BrowserBroker } = await import(pathToFileURL(bundled).href);
+
+test("backend handover revokes bound controls, queued actions and active diagnostics without closing the page", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "cdphelper-handover-control-"));
+  let disposed = 0,
+    fills = 0,
+    finishWait,
+    enteredWait;
+  const entered = new Promise((r) => {
+    enteredWait = r;
+  });
+  const broker = new BrowserBroker({
+    home,
+    extensionId: "a".repeat(32),
+    controlFactory: async () => ({
+      ensure: async () => {},
+      update: async () => {},
+      dispose: async () => {
+        disposed++;
+      },
+    }),
+  });
+  const page = Object.assign(new EventEmitter(), {
+    url: () => "https://fixture.test/",
+    isClosed: () => false,
+    close: () => {
+      throw new Error("Handover must preserve browser pages");
+    },
+    locator: () => ({
+      boundingBox: async () => null,
+      fill: async () => {
+        fills++;
+      },
+      waitFor: () => {
+        enteredWait();
+        return new Promise((r) => {
+          finishWait = r;
+        });
+      },
+    }),
+    context: () => ({
+      newCDPSession: async () => {
+        const cdp = new EventEmitter();
+        cdp.detach = async () => {};
+        cdp.send = async (method) => {
+          if (method === "Page.addScriptToEvaluateOnNewDocument") return { identifier: "script" };
+          if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "frame" } } };
+          if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
+          if (method === "Runtime.evaluate") return { result: { value: { time_origin: 1 } } };
+          if (method === "Performance.getMetrics") return { metrics: [] };
+          if (method === "Tracing.end") queueMicrotask(() => cdp.emit("Tracing.tracingComplete", { stream: "trace" }));
+          if (method === "IO.read") return { data: '{"traceEvents":[]}', eof: true };
+          return {};
+        };
+        return cdp;
+      },
+    }),
+  });
+  broker.context = async () => ({});
+  const session = broker.createSession(),
+    instance = randomUUID();
+  broker.session(session).instance = instance;
+  const tab_id = broker.register(page, instance);
+  try {
+    await broker.call(session, "browser_bind", { tab_id });
+    const capture = await broker.call(session, "browser_diagnostics_start", { tab_id });
+    const trace = await broker.call(session, "browser_performance_trace_start", { tab_id });
+    const traceRecord = broker.diagnostics.traces.get(trace.trace_id);
+    const captureRecord = broker.diagnostics.captures.get(capture.capture_id);
+    const waiting = broker.call(session, "browser_wait", { tab_id, target: { selector: "#late" } });
+    const waitCheck = assert.rejects(waiting, /released|stopped|expired/);
+    await entered;
+    const queued = broker.call(session, "browser_fill", {
+      tab_id,
+      target: { selector: "input" },
+      value: "must not run",
+    });
+    const queueCheck = assert.rejects(queued, /expired|ended|changed/);
+    await broker.close();
+    await Promise.all([waitCheck, queueCheck]);
+    assert.equal(fills, 0);
+    assert.equal(disposed, 1);
+    assert.equal(broker.sessions.size, 0);
+    assert.equal(broker.tabs.get(tab_id)?.owner ?? null, null);
+    assert.equal(captureRecord.state, "stopped");
+    assert.notEqual(captureRecord.stop_reason, "requested");
+    assert.equal(traceRecord.state, "failed");
+    assert.match(traceRecord.error, /interrupted/i);
+    assert.equal(page.isClosed(), false);
+    await assert.rejects(broker.call(session, "browser_snapshot", { tab_id }), /Session expired/);
+  } finally {
+    finishWait?.();
+    await broker.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
 
 test("human stop bypasses a busy queue, invalidates old operations and requires explicit rebind", async () => {
   const controls = [];

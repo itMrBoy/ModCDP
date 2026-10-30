@@ -4,8 +4,22 @@ import http from "node:http";
 import path from "node:path";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+import { build } from "esbuild";
 import { chromium } from "playwright-core";
 import { PageControl } from "../src/control.mjs";
+
+const bundled = path.resolve(".llmdoc-tmp/plugin-tests/broker-control-scroll.mjs");
+await build({
+  entryPoints: ["plugin/src/broker.mjs"],
+  outfile: bundled,
+  bundle: true,
+  packages: "external",
+  platform: "node",
+  format: "esm",
+  logLevel: "silent",
+});
+const { BrowserBroker } = await import(pathToFileURL(bundled).href);
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(check, description) {
@@ -54,6 +68,121 @@ async function inspect(session, className, functionDeclaration) {
     await session.send("Runtime.releaseObject", { objectId: object.objectId });
   }
 }
+
+test(
+  "control avoids a page button underneath stop without intercepting locator clicks",
+  { timeout: 30000 },
+  async () => {
+    const executablePath = [
+      process.env.SNOW_TEST_BROWSER,
+      path.join(homedir(), ".cache/puppeteer/chrome/win64-131.0.6778.204/chrome-win64/chrome.exe"),
+      "/usr/bin/chromium",
+      "/usr/bin/chromium-browser",
+    ].find((candidate) => candidate && existsSync(candidate));
+    assert.ok(executablePath, "An installed test Chromium is required.");
+    const browser = await chromium.launch({ executablePath, headless: true });
+    let control;
+    try {
+      const page = await browser.newPage({ viewport: { width: 900, height: 650 } });
+      await page.setContent(
+        '<button id="business" style="position:fixed;width:60px;height:32px" onclick="window.clicks=(window.clicks||0)+1">Search</button>',
+      );
+      let stops = 0;
+      control = await PageControl.create(page, {
+        generation: "overlap",
+        displayNumber: 1,
+        onStop: () => {
+          stops++;
+        },
+      });
+      const button = page.getByRole("button", { name: "Search", exact: true });
+      for (const viewport of [
+        { width: 900, height: 650 },
+        { width: 480, height: 240 },
+      ]) {
+        await page.setViewportSize(viewport);
+        await control.update({ action: "正在点击" });
+        const stop = await inspect(
+          control.session,
+          "stop",
+          "function(){const r=this.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}}",
+        );
+        await button.evaluate((node, point) => {
+          node.style.left = `${point.x - 30}px`;
+          node.style.top = `${point.y - 16}px`;
+        }, stop);
+        const box = await button.boundingBox();
+        await control.update({ action: "正在点击", box });
+        await button.click({ timeout: 1000 });
+        assert.equal(stops, 0, "A page click must not hit the stop button");
+      }
+      assert.equal(await page.evaluate(() => window.clicks), 2, "Each locator click reaches the page exactly once");
+      await control.update({ action: null });
+      const passive = await inspect(
+        control.session,
+        "brand",
+        "function(){const r=this.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}}",
+      );
+      await button.evaluate((node, point) => {
+        node.style.left = `${point.x - 30}px`;
+        node.style.top = `${point.y - 16}px`;
+      }, passive);
+      await button.click({ timeout: 1000 });
+      assert.equal(
+        await page.evaluate(() => window.clicks),
+        3,
+        "The passive brand and status never intercept page clicks",
+      );
+      assert.equal(stops, 0);
+      const stop = await inspect(
+        control.session,
+        "stop",
+        "function(){const r=this.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}}",
+      );
+      await page.mouse.click(stop.x, stop.y);
+      await until(() => stops === 1, "Stop remains available while avoiding the target");
+    } finally {
+      await control?.dispose();
+      await browser.close();
+    }
+  },
+);
+
+test("click measures the target after scrolling before positioning page controls", { timeout: 30000 }, async () => {
+  const executablePath = [
+    process.env.SNOW_TEST_BROWSER,
+    path.join(homedir(), ".cache/puppeteer/chrome/win64-131.0.6778.204/chrome-win64/chrome.exe"),
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+  ].find((candidate) => candidate && existsSync(candidate));
+  assert.ok(executablePath, "An installed test Chromium is required.");
+  const browser = await chromium.launch({ executablePath, headless: true });
+  let control;
+  try {
+    const page = await browser.newPage({ viewport: { width: 900, height: 650 } });
+    await page.setContent(
+      '<style>body{height:2000px}</style><button style="position:absolute;left:100px;top:1500px;width:100px;height:40px" onclick="window.clicks=(window.clicks||0)+1">Scrolled search</button>',
+    );
+    const button = page.getByRole("button", { name: "Scrolled search", exact: true });
+    assert.ok((await button.boundingBox()).y > 650, "The target starts outside the viewport");
+    control = await PageControl.create(page, { generation: "scroll", onStop: () => {} });
+    const broker = new BrowserBroker({ home: path.resolve(".llmdoc-tmp/control-scroll-home") });
+    await broker.executePage(
+      {},
+      { page, control },
+      "browser_click",
+      { target: { role: "button", name: "Scrolled search" } },
+      () => {},
+    );
+    const actual = await button.boundingBox();
+    assert.ok(actual.y >= 0 && actual.y + actual.height <= 650);
+    assert.ok(Math.abs(control.box.y - actual.y) < 1, "Avoidance and highlighting use the final viewport position");
+    assert.equal(await page.evaluate(() => window.clicks), 1, "Normal Playwright click reaches the page once");
+  } finally {
+    await control?.dispose();
+    await browser.close();
+  }
+});
 
 test(
   "page control stays private, passes page input, follows real mouse, restores navigation and cleans up",

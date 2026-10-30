@@ -26,10 +26,11 @@ export async function launchIsolated(home, instanceId, executable, startupUrl = 
   const base = path.join(home, "profiles");
   await mkdir(base, { recursive: true });
   const profile = await mkdtemp(path.join(base, "isolated-"));
-  const proc = spawn(resolvedExecutable, [`--user-data-dir=${profile}`, "--no-first-run", startupUrl], {
-    stdio: "ignore",
-    windowsHide: false,
-  });
+  const proc = spawnIndependentBrowser(resolvedExecutable, [
+    `--user-data-dir=${profile}`,
+    "--no-first-run",
+    startupUrl,
+  ]);
   await new Promise((resolve, reject) => {
     proc.once("spawn", resolve);
     proc.once("error", reject);
@@ -41,10 +42,19 @@ export async function launchIsolated(home, instanceId, executable, startupUrl = 
     pid: proc.pid ?? null,
     created_at: new Date().toISOString(),
     mode: "isolated",
+    lifetime_detached: true,
   };
   await writeFile(path.join(profile, ".cdphelper-owner.json"), JSON.stringify(record));
   proc.unref();
   return { record, proc };
+}
+
+// unref alone leaves Windows children in libuv's kill-on-parent-exit job.
+// The GUI must remain visible while its lifetime is independent of this daemon.
+export function spawnIndependentBrowser(executable, args) {
+  const proc = spawn(executable, args, { stdio: "ignore", windowsHide: false, detached: true });
+  proc.unref();
+  return proc;
 }
 
 async function ownedProfile(record, home) {
@@ -70,7 +80,11 @@ async function ownedProfile(record, home) {
     !/^(snowview(?:\.exe)?|Snow Browser)$/i.test(path.basename(record.executable))
   )
     throw new Error("Profile ownership mismatch.");
-  return { profile, executable: await realpath(record.executable) };
+  return {
+    profile,
+    executable: await realpath(record.executable),
+    lifetimeDetached: record.lifetime_detached === true && marker.lifetime_detached === true,
+  };
 }
 
 function findOwnedWindows(profile, executable) {
@@ -100,7 +114,7 @@ export async function isolatedRunning(record) {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        `${findOwnedWindows(profile, executable)}\n      (Find-Owned).Count`,
+        `${findOwnedWindows(profile, executable)}\n      @(Find-Owned).Count`,
       ],
       { encoding: "utf8", windowsHide: true, timeout: 15000 },
     );
@@ -110,6 +124,33 @@ export async function isolatedRunning(record) {
     // Missing markers, unavailable process metadata, and access failures are all
     // unverified; callers must not register such a connection as owned.
     return false;
+  }
+}
+
+// Historical launchers did not detach Snow from the daemon's Windows job.
+// Reject retirement while any such owned browser is live; uncertainty is unsafe.
+export async function assertBrowserLifetimePreserved(home) {
+  if (process.platform !== "win32") return;
+  let records;
+  try {
+    records = JSON.parse(await readFile(path.join(home, "retained.json"), "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  if (!Array.isArray(records)) throw new Error("旧隔离实例记录无法核验。");
+  for (const record of records) {
+    if (record?.mode === "reuse") continue;
+    const { profile, executable, lifetimeDetached } = await ownedProfile(record, home);
+    if (lifetimeDetached) continue;
+    const { stdout } = await runFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", `${findOwnedWindows(profile, executable)}\n@(Find-Owned).Count`],
+      { encoding: "utf8", windowsHide: true, timeout: 15000 },
+    );
+    const count = stdout.trim();
+    if (!/^\d+$/.test(count)) throw new Error("旧隔离雪诺进程状态无法核验。");
+    if (Number(count) > 0) throw new Error("旧版 plugin 启动的隔离雪诺仍依赖旧后台存活。");
   }
 }
 
