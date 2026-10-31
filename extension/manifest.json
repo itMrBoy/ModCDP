@@ -26,6 +26,6 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "permissions": ["activeTab", "tabs", "debugger", "offscreen", "nativeMessaging", "storage"],
+  "permissions": ["tabs", "debugger", "offscreen", "nativeMessaging", "storage"],
   "host_permissions": ["<all_urls>", "http://localhost/*", "http://127.0.0.1/*", "ws://localhost/*", "ws://127.0.0.1/*"]
 }

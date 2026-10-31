@@ -4,7 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, rm, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright-core";
@@ -133,7 +133,7 @@ test(
       }
       res.setHeader("content-type", "text/html");
       res.end(
-        `<title>Snow fixture</title><label>Name<input aria-label="Name"></label><button onclick="document.querySelector('output').textContent=document.querySelector('input').value">Apply</button><output></output><button id="late" hidden>Late</button>`,
+        `<title>Snow fixture</title><style>body{min-height:2000px}</style><label>Name<input aria-label="Name"></label><button onclick="document.querySelector('output').textContent=document.querySelector('input').value">Apply</button><output></output><button id="late" hidden>Late</button>`,
       );
     });
     await new Promise((resolve) => fixture.listen(0, "127.0.0.1", resolve));
@@ -281,9 +281,19 @@ test(
       await broker.call(b, "browser_select", { mode: "reuse", instance_id: ib.instance_id });
       await broker.call(c, "browser_select", { mode: "reuse", instance_id: ia.instance_id });
       assert.equal((await fetch(broker.instances.get(ia.instance_id).proxy.url + "/json/version")).status, 403);
-      const first = await broker.call(a, "browser_new_tab", {});
-      const second = await broker.call(b, "browser_new_tab", {});
-      const third = await broker.call(c, "browser_new_tab", {});
+      const activeBefore = await contexts[0]
+        .serviceWorkers()[0]
+        .evaluate(async () => (await chrome.tabs.query({ active: true })).map((t) => t.id));
+      const [first, second, third] = await Promise.all([
+        broker.call(a, "browser_new_tab", {}),
+        broker.call(b, "browser_new_tab", {}),
+        broker.call(c, "browser_new_tab", {}),
+      ]);
+      assert.notEqual(first.tab_id, third.tab_id, "Concurrent creation must bind the exact requested page");
+      const activeAfter = await contexts[0]
+        .serviceWorkers()[0]
+        .evaluate(async () => (await chrome.tabs.query({ active: true })).map((t) => t.id));
+      assert.deepEqual(activeAfter, activeBefore, "Background creation must preserve the user's active tab");
       const url = `http://127.0.0.1:${fixture.address().port}/`;
       await Promise.all([
         broker.call(a, "browser_navigate", { ...first, url }),
@@ -314,7 +324,21 @@ test(
       await waiting;
       await broker.call(b, "browser_click", { ...second, target: { role: "button", name: "Apply" } });
       assert.match((await broker.call(b, "browser_snapshot", second)).snapshot, /other-profile/);
-      assert.ok(Buffer.from((await broker.call(b, "browser_screenshot", second)).image, "base64").length > 100);
+      const viewportImage = Buffer.from((await broker.call(b, "browser_screenshot", second)).image, "base64");
+      assert.ok(viewportImage.length > 100);
+      const viewport = await broker.tabs
+        .get(second.tab_id)
+        .page.evaluate(() => ({ width: innerWidth, height: innerHeight, documentHeight: document.body.scrollHeight }));
+      assert.ok(
+        viewport.documentHeight > viewport.height,
+        "The fixture must distinguish viewport from full-page capture",
+      );
+      assert.ok(
+        Math.abs(
+          viewportImage.readUInt32BE(20) - (viewport.height * viewportImage.readUInt32BE(16)) / viewport.width,
+        ) <= 1,
+        "The screenshot must cover the viewport rather than the tall document",
+      );
       const capture = await broker.call(a, "browser_diagnostics_start", { ...first, duration_ms: 60000 });
       await broker.call(a, "browser_evaluate", {
         ...first,
@@ -375,7 +399,11 @@ test(
       assert.ok(traced.complete);
       assert.ok(JSON.parse(await readFile(traced.path, "utf8")).traceEvents.length > 0);
       const controlledPage = broker.tabs.get(first.tab_id).page;
-      await controlledPage.screenshot({ path: path.resolve(".llmdoc-tmp/diagnostics-controlled-page.png") });
+      const agentImage = await broker.call(a, "browser_screenshot", first);
+      await writeFile(
+        path.resolve(".llmdoc-tmp/diagnostics-controlled-page.png"),
+        Buffer.from(agentImage.image, "base64"),
+      );
       const longWait = broker.call(a, "browser_wait", {
         ...first,
         target: { selector: "#never-visible" },
@@ -389,10 +417,27 @@ test(
       await Promise.all([waitRejected, oldRejected]);
       assert.equal(broker.tabs.get(first.tab_id).owner, null);
       await assert.rejects(broker.call(a, "browser_bind", first), /user stopped|Explicit/);
-      await broker.call(a, "browser_bind", { ...first, resume_after_user_stop: true });
+      await broker.tabs.get(first.tab_id).revoking;
+      const manual = (await broker.call(a, "browser_tabs", {})).tabs.find((t) => t.tab_id === first.tab_id);
+      assert.equal(manual.control_state, "user");
+      await assert.rejects(broker.call(c, "browser_bind", { ...first, resume_after_user_stop: true }), /busy/);
+      await clickControlStop(controlledPage); // The same button now says 交还控制权.
+      await until(
+        () => broker.tabs.get(first.tab_id)?.owner === a && !broker.tabs.get(first.tab_id)?.stoppedByUser,
+        "The real return button must establish a new control generation",
+      );
+      await assert.rejects(
+        broker.call(a, "browser_click", { ...first, target: { role: "button", name: "Apply" } }),
+        /browser_snapshot/,
+      );
       assert.doesNotMatch(
         (await broker.call(a, "browser_snapshot", first)).snapshot,
         /cdpHelper|停止控制|must-never-run/,
+      );
+      const returnedImage = await broker.call(a, "browser_screenshot", first);
+      await writeFile(
+        path.resolve(".llmdoc-tmp/control-preview-returned.png"),
+        Buffer.from(returnedImage.image, "base64"),
       );
       await broker.dropSession(a);
       await broker.call(c, "browser_bind", first);

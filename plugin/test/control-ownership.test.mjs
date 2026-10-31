@@ -115,13 +115,20 @@ test("backend handover revokes bound controls, queued actions and active diagnos
   }
 });
 
-test("human stop bypasses a busy queue, invalidates old operations and requires explicit rebind", async () => {
+test("human stop bypasses the queue; return restores a new lease and requires a fresh snapshot", async () => {
   const controls = [];
   const broker = new BrowserBroker({
     home: path.resolve(".llmdoc-tmp/ownership-home"),
     extensionId: "a".repeat(32),
-    controlFactory: async (_page, { onStop }) => {
-      const control = { ensure: async () => {}, update: async () => {}, dispose: async () => {}, onStop };
+    controlFactory: async (_page, { onStop, onReturn }) => {
+      const control = {
+        ensure: async () => {},
+        update: async () => {},
+        dispose: async () => {},
+        setMode: async () => {},
+        onStop,
+        onReturn,
+      };
       controls.push(control);
       return control;
     },
@@ -139,7 +146,9 @@ test("human stop bypasses a busy queue, invalidates old operations and requires 
   const page = Object.assign(new EventEmitter(), {
     url: () => "https://example.test/",
     isClosed: () => false,
+    title: async () => "Fixture",
     locator: () => ({
+      ariaSnapshot: async () => "Current page state",
       waitFor: () => {
         enteredWait();
         return new Promise((resolve) => {
@@ -170,8 +179,13 @@ test("human stop bypasses a busy queue, invalidates old operations and requires 
     assert.equal(fills, 0);
     assert.equal(broker.tabs.get(tab_id).owner, null);
     await assert.rejects(broker.call(session, "browser_bind", { tab_id }), /user stopped|Explicit/);
-    await assert.rejects(broker.call(other, "browser_bind", { tab_id }), /user stopped|Explicit/);
-    await broker.call(session, "browser_bind", { tab_id, resume_after_user_stop: true });
+    await assert.rejects(broker.call(other, "browser_bind", { tab_id, resume_after_user_stop: true }), /busy/);
+    await controls[0].onReturn();
+    await assert.rejects(
+      broker.call(session, "browser_fill", { tab_id, target: { selector: "input" }, value: "stale" }),
+      /browser_snapshot/,
+    );
+    await broker.call(session, "browser_snapshot", { tab_id });
     finishWait();
     await broker.call(session, "browser_fill", { tab_id, target: { selector: "input" }, value: "new-operation" });
     assert.equal(fills, 1);
@@ -252,6 +266,75 @@ test("session drop during indicator installation disposes the late controller wi
   await broker.close();
 });
 
+for (const endSession of [false, true]) {
+  test(`stop during indicator installation ${endSession ? "still disposes after session end" : "retains user control and supports return"}`, async () => {
+    let started, finish;
+    const entered = new Promise((resolve) => {
+      started = resolve;
+    });
+    const installed = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const controls = [];
+    const broker = new BrowserBroker({
+      home: path.resolve(".llmdoc-tmp/ownership-home"),
+      controlFactory: async (_page, options) => {
+        const control = {
+          ...options,
+          modes: [],
+          disposed: false,
+          ensure: async () => {},
+          setMode: async (mode) => {
+            control.modes.push(mode);
+          },
+          dispose: async () => {
+            control.disposed = true;
+          },
+        };
+        controls.push(control);
+        if (controls.length === 1) {
+          started();
+          await installed;
+        }
+        return control;
+      },
+    });
+    broker.context = async () => ({});
+    const owner = broker.createSession(),
+      instance = randomUUID();
+    broker.session(owner).instance = instance;
+    const page = Object.assign(new EventEmitter(), { url: () => "https://fixture.test/", isClosed: () => false });
+    const tab_id = broker.register(page, instance);
+    try {
+      const binding = broker.call(owner, "browser_bind", { tab_id });
+      const rejected = assert.rejects(binding, /expired|stopped/);
+      await entered;
+      controls[0].onStop();
+      if (endSession) await broker.dropSession(owner);
+      finish();
+      await rejected;
+      const tab = broker.tabs.get(tab_id);
+      assert.equal(tab.owner, null, "install completion cannot restore the revoked lease");
+      if (endSession) {
+        assert.equal(tab.control, null);
+        assert.equal(controls[0].disposed, true);
+      } else {
+        assert.equal(tab.control, controls[0]);
+        assert.equal(tab.suspendedOwner, owner);
+        assert.deepEqual(controls[0].modes, ["user"]);
+        assert.equal(controls[0].disposed, false);
+        await controls[0].onReturn();
+        assert.equal(tab.owner, owner);
+        assert.equal(tab.needsSnapshot, true);
+        assert.equal(controls[0].disposed, true);
+      }
+    } finally {
+      finish();
+      await broker.close();
+    }
+  });
+}
+
 test("evaluate timeout returns even when restoring the page indicator is blocked", async () => {
   let restore;
   const blockedRestore = new Promise((resolve) => {
@@ -289,6 +372,60 @@ test("evaluate timeout returns even when restoring the page indicator is blocked
     assert.equal(result.execution_may_continue, true);
   } finally {
     restore();
+    await broker.close();
+  }
+});
+
+test("a return waiting on old disposal cannot overwrite another session after release", async () => {
+  let finishDisposal, enteredDisposal;
+  const entered = new Promise((resolve) => {
+    enteredDisposal = resolve;
+  });
+  const disposed = new Promise((resolve) => {
+    finishDisposal = resolve;
+  });
+  const controls = [];
+  const broker = new BrowserBroker({
+    home: path.resolve(".llmdoc-tmp/ownership-race-home"),
+    controlFactory: async (_page, options) => {
+      const index = controls.length;
+      const control = {
+        ...options,
+        ensure: async () => {},
+        setMode: async () => {},
+        dispose: async () => {
+          if (index === 0) {
+            enteredDisposal();
+            await disposed;
+          }
+        },
+      };
+      controls.push(control);
+      return control;
+    },
+  });
+  const instance = randomUUID(),
+    first = broker.createSession(),
+    second = broker.createSession();
+  broker.session(first).instance = instance;
+  broker.session(second).instance = instance;
+  broker.context = async () => ({});
+  const page = Object.assign(new EventEmitter(), { url: () => "https://fixture.test/", isClosed: () => false });
+  const tab_id = broker.register(page, instance);
+  try {
+    await broker.call(first, "browser_bind", { tab_id });
+    controls[0].onStop();
+    await broker.tabs.get(tab_id).revoking;
+    const returning = controls[0].onReturn();
+    const rejected = assert.rejects(returning, /changed|stale/);
+    await entered;
+    await broker.call(first, "browser_release", { tab_id });
+    await broker.call(second, "browser_bind", { tab_id, resume_after_user_stop: true });
+    finishDisposal();
+    await rejected;
+    assert.equal(broker.tabs.get(tab_id).owner, second);
+  } finally {
+    finishDisposal();
     await broker.close();
   }
 });

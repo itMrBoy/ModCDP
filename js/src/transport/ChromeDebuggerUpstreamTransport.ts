@@ -122,9 +122,9 @@ class ChromeDebuggerUpstreamTransport extends UpstreamTransport {
     return null;
   }
 
-  /** Create a new foreground tab and return the corresponding CDP target id. */
-  async createTarget(url: string) {
-    const tab = await globalThis.chrome.tabs.create({ url, active: true });
+  /** Create a tab and return its CDP target id; preserve foreground defaults for other clients. */
+  async createTarget(url: string, background = false) {
+    const tab = await globalThis.chrome.tabs.create({ url, active: !background });
     if (!tab.id) throw new Error(`chromedebugger could not create a tab for ${url}.`);
     await this.getTargets();
     const targetId = this.targetId_from_tabId.get(tab.id);

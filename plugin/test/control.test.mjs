@@ -221,6 +221,7 @@ test(
         },
       });
       const session = control.session;
+      await page.screenshot({ path: path.resolve(".llmdoc-tmp/control-ui-agent.png") });
       assert.deepEqual(
         await inspect(
           session,
@@ -327,7 +328,12 @@ test(
       );
       await page.mouse.click(stopBox.x, stopBox.y);
       await until(() => stops === 1, "Trusted stop must immediately notify its owner");
-      assert.equal(await page.locator("[data-cdphelper-control]").count(), 0);
+      await control.setMode("user", "generation-three");
+      assert.equal(await page.locator("[data-cdphelper-control]").count(), 1);
+      assert.equal(await inspect(control.session, "stop", "function(){return this.textContent}"), "交还控制权");
+      await page.goto(`${url}/manual-navigation`);
+      await control.ensure();
+      assert.equal(await inspect(control.session, "stop", "function(){return this.textContent}"), "交还控制权");
       await assert.rejects(control.update({ action: "late update" }), /no longer active/);
       await control.dispose();
 

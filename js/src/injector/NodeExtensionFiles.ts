@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 type PreparedExtension = {
   unpacked_extension_path: string;
@@ -14,7 +15,7 @@ function defaultModCDPExtensionPath() {
     const relative_path = import.meta.url.includes("/dist/js/src/")
       ? "../../../../dist/extension.zip"
       : "../../../dist/extension.zip";
-    return decodeURIComponent(new URL(/* @vite-ignore */ relative_path, import.meta.url).pathname);
+    return fileURLToPath(new URL(/* @vite-ignore */ relative_path, import.meta.url));
   }
   return "../../../dist/extension.zip";
 }

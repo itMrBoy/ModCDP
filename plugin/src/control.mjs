@@ -5,16 +5,17 @@ const TTL = 15000;
 const HEARTBEAT = 4000;
 
 // Runs only in this controller's isolated world. No page-supplied code is evaluated.
-function installControl({ key, binding, token, generation, expiresAt, action, box, displayNumber, appearance }) {
+function installControl({ key, binding, token, generation, mode, expiresAt, action, box, displayNumber, appearance }) {
   if (window.top !== window || Date.now() >= expiresAt) return false;
   const previous = globalThis[key];
   if (previous) {
-    return previous.refresh({ expiresAt, action, box });
+    return previous.refresh({ expiresAt, action, box, generation, mode });
   }
   let host,
     shadow,
     bar,
     label,
+    stop,
     target,
     pointer,
     observer,
@@ -22,6 +23,9 @@ function installControl({ key, binding, token, generation, expiresAt, action, bo
   let lease = expiresAt;
   let currentAction = action;
   let currentBox = box;
+  let currentGeneration = generation;
+  let currentMode = mode;
+  let notifying = false;
   const ripples = new Set();
   const remove = () => {
     if (disposed) return;
@@ -37,7 +41,9 @@ function installControl({ key, binding, token, generation, expiresAt, action, bo
   };
   const paint = () => {
     if (!label) return;
-    label.textContent = currentAction || "正在控制此页面";
+    label.textContent = currentMode === "user" ? "用户控制中" : currentAction || "正在控制此页面";
+    stop.textContent = currentMode === "user" ? "交还控制权" : "停止控制";
+    stop.disabled = notifying;
     if (!/点击|填写|按键|click|fill|press/i.test(currentAction || "")) pointer.style.display = "none";
     const hasBox =
       currentBox && [currentBox.x, currentBox.y, currentBox.width, currentBox.height].every(Number.isFinite);
@@ -101,17 +107,26 @@ function installControl({ key, binding, token, generation, expiresAt, action, bo
     instanceBadge.style.color = appearance.foreground;
     label = document.createElement("span");
     label.className = "action";
-    const stop = document.createElement("button");
+    stop = document.createElement("button");
     stop.className = "stop";
     stop.type = "button";
     stop.textContent = "停止控制";
     stop.addEventListener("click", (event) => {
-      if (!event.isTrusted || disposed || Date.now() >= lease) return;
+      if (!event.isTrusted || notifying || disposed || Date.now() >= lease) return;
       event.preventDefault();
       event.stopPropagation();
       const notify = globalThis[binding];
-      remove();
-      if (typeof notify === "function") notify(JSON.stringify({ token, generation, action: "stop" }));
+      if (typeof notify !== "function") return;
+      const action = currentMode === "user" ? "return_control" : "stop";
+      notifying = true;
+      if (action === "stop") {
+        currentMode = "user";
+        currentAction = null;
+        currentBox = null;
+        hide();
+      }
+      paint();
+      notify(JSON.stringify({ token, generation: currentGeneration, action }));
     });
     bar.append(brand);
     if (displayNumber !== null) bar.append(instanceBadge);
@@ -166,6 +181,11 @@ function installControl({ key, binding, token, generation, expiresAt, action, bo
   const state = {
     refresh(value) {
       if (disposed) return;
+      // A broker refresh also acknowledges a failed/busy return request, so a
+      // real user can retry without granting any control automatically.
+      notifying = false;
+      currentGeneration = value.generation;
+      currentMode = value.mode;
       lease = value.expiresAt;
       currentAction = value.action;
       currentBox = value.box;
@@ -194,8 +214,8 @@ function installControl({ key, binding, token, generation, expiresAt, action, bo
 }
 
 export class PageControl {
-  static async create(page, { generation, onStop, displayNumber }) {
-    const control = new PageControl(page, { generation, onStop, displayNumber });
+  static async create(page, { generation, onStop, onReturn, displayNumber }) {
+    const control = new PageControl(page, { generation, onStop, onReturn, displayNumber });
     try {
       control.session = await page.context().newCDPSession(page);
       await control.init();
@@ -206,10 +226,14 @@ export class PageControl {
     }
   }
 
-  constructor(page, { generation, onStop, displayNumber }) {
+  constructor(page, { generation, onStop, onReturn, displayNumber }) {
     this.page = page;
     this.generation = String(generation);
     this.onStop = onStop;
+    this.onReturn = onReturn;
+    this.mode = "agent";
+    this.focusEnabled = null;
+    this.focusManaged = false;
     this.displayNumber = Number.isSafeInteger(displayNumber) && displayNumber > 0 ? displayNumber : null;
     const nonce = randomBytes(20).toString("hex");
     this.key = `__cdphelper_control_${nonce}`;
@@ -226,31 +250,47 @@ export class PageControl {
   }
 
   source() {
-    return `(${installControl.toString()})(${JSON.stringify({ key: this.key, binding: this.binding, token: this.token, generation: this.generation, expiresAt: Date.now() + TTL, action: this.action, box: this.box, displayNumber: this.displayNumber, appearance: instanceAppearance(this.displayNumber) })})`;
+    return `(${installControl.toString()})(${JSON.stringify({ key: this.key, binding: this.binding, token: this.token, generation: this.generation, mode: this.mode, expiresAt: Date.now() + TTL, action: this.action, box: this.box, displayNumber: this.displayNumber, appearance: instanceAppearance(this.displayNumber) })})`;
   }
 
   async init() {
     this.bindingListener = (event) => {
-      if (this.disposed || this.stopped || event.name !== this.binding || event.executionContextId !== this.contextId)
-        return;
+      if (this.disposed || event.name !== this.binding || event.executionContextId !== this.contextId) return;
       let payload;
       try {
         payload = JSON.parse(event.payload);
       } catch {
         return;
       }
-      if (payload.token !== this.token || payload.generation !== this.generation || payload.action !== "stop") return;
+      if (payload.token !== this.token || payload.generation !== this.generation) return;
+      if (payload.action === "return_control") {
+        if (this.mode !== "user" || this.returning || !this.onReturn) return;
+        this.returning = true;
+        Promise.resolve()
+          .then(() => this.onReturn())
+          .catch((error) => {
+            this.lastError = error;
+          })
+          .finally(() => {
+            this.returning = false;
+          });
+        return;
+      }
+      if (payload.action !== "stop" || this.stopped || this.mode !== "agent") return;
       this.stopped = true;
-      clearInterval(this.timer);
+      this.mode = "user";
+      this.action = null;
+      this.box = null;
       // The callback invalidates ownership immediately; never enter the tool queue here.
       try {
         Promise.resolve(this.onStop()).catch(() => {});
       } catch {}
     };
     this.navigationListener = (event) => {
-      if (event.frame.parentId || this.disposed || this.stopped) return;
+      if (event.frame.parentId || this.disposed) return;
       this.contextId = null;
       this.box = null;
+      this.focusEnabled = null;
       this.ensure().catch((error) => {
         this.lastError = error;
       });
@@ -288,7 +328,13 @@ export class PageControl {
     const operation = this.pending
       .catch(() => {})
       .then(async () => {
-        if (this.disposed || this.stopped) throw new Error("Page control is no longer active.");
+        if (this.disposed) throw new Error("Page control is no longer active.");
+        const focusEnabled = this.mode === "agent" && !this.stopped;
+        if (this.focusEnabled !== focusEnabled) {
+          this.focusManaged = true;
+          await this.session.send("Emulation.setFocusEmulationEnabled", { enabled: focusEnabled });
+          this.focusEnabled = focusEnabled;
+        }
         let failure;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
@@ -297,7 +343,7 @@ export class PageControl {
               frameId: frameTree.frame.id,
               worldName: this.world,
             });
-            if (this.disposed || this.stopped) throw new Error("Page control is no longer active.");
+            if (this.disposed) throw new Error("Page control is no longer active.");
             this.contextId = executionContextId;
             this.contextIds.add(executionContextId);
             const result = await this.session.send("Runtime.evaluate", {
@@ -305,14 +351,14 @@ export class PageControl {
               contextId: executionContextId,
               returnByValue: true,
             });
-            if (this.disposed || this.stopped) throw new Error("Page control is no longer active.");
+            if (this.disposed) throw new Error("Page control is no longer active.");
             if (result.exceptionDetails || result.result?.value !== true)
               throw new Error("Could not mount page control.");
             this.lastError = null;
             return;
           } catch (error) {
             failure = error;
-            if (this.disposed || this.stopped || !/context|frame|navigation/i.test(error.message)) break;
+            if (this.disposed || !/context|frame|navigation/i.test(error.message)) break;
           }
         }
         throw failure;
@@ -322,11 +368,36 @@ export class PageControl {
   }
 
   async update({ action, box = null }) {
+    if (this.disposed || this.stopped) throw new Error("Page control is no longer active.");
     this.action = action ? String(action).slice(0, 200) : null;
     this.box =
       box && [box.x, box.y, box.width, box.height].every(Number.isFinite)
         ? { x: box.x, y: box.y, width: box.width, height: box.height }
         : null;
+    await this.ensure();
+  }
+
+  async setMode(mode, generation) {
+    this.mode = mode;
+    this.stopped = mode === "user";
+    this.generation = String(generation);
+    this.action = null;
+    this.box = null;
+    // New documents must inherit the current state, not the original agent lease.
+    this.pending = this.pending
+      .catch(() => {})
+      .then(async () => {
+        if (this.disposed) throw new Error("Page control is no longer active.");
+        if (this.scriptId)
+          await this.session.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: this.scriptId });
+        this.scriptId = (
+          await this.session.send("Page.addScriptToEvaluateOnNewDocument", {
+            source: this.source(),
+            worldName: this.world,
+          })
+        ).identifier;
+      });
+    await this.pending;
     await this.ensure();
   }
 
@@ -341,6 +412,8 @@ export class PageControl {
       this.session.off("Runtime.executionContextCreated", this.contextListener);
       this.session.off("Runtime.executionContextDestroyed", this.destroyedListener);
       await this.pending.catch(() => {});
+      if (this.focusManaged)
+        await this.session.send("Emulation.setFocusEmulationEnabled", { enabled: false }).catch(() => {});
       if (this.scriptId)
         await this.session
           .send("Page.removeScriptToEvaluateOnNewDocument", { identifier: this.scriptId })
