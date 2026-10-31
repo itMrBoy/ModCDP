@@ -44,13 +44,17 @@ export const tools = [
       })
       .strict(),
   ],
-  ["browser_tabs", "List pages in this session's selected browser and their ownership.", empty],
+  [
+    "browser_tabs",
+    "List pages in this session's selected browser, ownership, control_state and requires_snapshot. After control is returned, read browser_snapshot before continuing; never replay old operations.",
+    empty,
+  ],
   [
     "browser_bind",
     "Exclusively bind a tab and show its control indicator. After the user presses Stop control, resume_after_user_stop may be true only when the user explicitly requests resuming this page.",
     z.object({ ...page, resume_after_user_stop: z.boolean().default(false) }).strict(),
   ],
-  ["browser_new_tab", "Create and own a blank tab in the selected browser.", empty],
+  ["browser_new_tab", "Create and own a background blank tab in the selected browser without activating it.", empty],
   ["browser_release", "Release a tab without closing it.", z.object(page).strict()],
   [
     "browser_navigate",

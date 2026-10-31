@@ -6,13 +6,13 @@
   },
   "documents": {
     "browser/cdp-endpoint.mdx": {
-      "validatedRevision": "b520fcb121b734cbd1b14dec40f81e99244eec52"
+      "validatedRevision": "58403515fd329b5c48431f04cf6ed722c666d06e"
     },
     "browser/worker-lifecycle.mdx": {
-      "validatedRevision": "b520fcb121b734cbd1b14dec40f81e99244eec52"
+      "validatedRevision": "58403515fd329b5c48431f04cf6ed722c666d06e"
     },
     "connection/browser-lifecycle.mdx": {
-      "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
+      "validatedRevision": "58403515fd329b5c48431f04cf6ed722c666d06e"
     },
     "connection/transports.mdx": {
       "validatedRevision": "b520fcb121b734cbd1b14dec40f81e99244eec52"
@@ -30,7 +30,7 @@
       "validatedRevision": "a68ee7975efd2c1b630f0e82208813eb521d4f22"
     },
     "connection/cdphelper-plugin-runtime.mdx": {
-      "validatedRevision": "b520fcb121b734cbd1b14dec40f81e99244eec52"
+      "validatedRevision": "ff8c1a7445491dab2f7b8c5aa23a982c4d7ec24c"
     }
   },
   "convergence": {

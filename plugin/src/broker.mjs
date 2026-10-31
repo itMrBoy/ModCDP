@@ -10,6 +10,7 @@ import { startBridge } from "./bridge.mjs";
 import { PageControl } from "./control.mjs";
 import { Diagnostics } from "./diagnostics.mjs";
 import { evaluatePage } from "./evaluate.mjs";
+import { screenshotPage } from "./screenshot.mjs";
 
 const ordinary = (page) => /^(https?:\/\/|about:blank$)/i.test(page.url());
 const secret = () => randomBytes(32).toString("hex");
@@ -132,21 +133,27 @@ export class BrowserBroker {
   }
   async revokeTab(tab, reason = "released", manual = false) {
     const controller = tab.control;
+    tab.suspendedOwner = manual ? tab.owner : null;
     tab.owner = null;
     tab.generation++;
-    tab.control = null;
+    if (!manual) tab.control = null;
     if (manual) tab.stoppedByUser = true;
     tab.abort?.abort(
       new Error("Page control was stopped or released. In-flight effects may continue; do not retry automatically."),
     );
     tab.abort = null;
-    const cleanup = Promise.allSettled([controller?.dispose(), this.diagnostics.releaseTab(tab.id, reason)]);
+    const cleanup = Promise.allSettled([
+      manual ? controller?.setMode("user", tab.generation) : controller?.dispose(),
+      this.diagnostics.releaseTab(tab.id, reason),
+    ]);
     tab.revoking = this.trackCleanup(cleanup);
     await tab.revoking;
   }
   async releaseSessionTabs(owner, reason) {
     await Promise.all(
-      [...this.tabs.values()].filter((tab) => tab.owner === owner).map((tab) => this.revokeTab(tab, reason)),
+      [...this.tabs.values()]
+        .filter((tab) => tab.owner === owner || tab.suspendedOwner === owner)
+        .map((tab) => this.revokeTab(tab, reason)),
     );
   }
   assertLease(session, tab, generation) {
@@ -165,7 +172,10 @@ export class BrowserBroker {
   async bindTab(session, tab, resume = false) {
     if (!tab || tab.instance !== session.instance || tab.page.isClosed())
       throw new Error("Invalid tab for selected browser.");
+    const expectedGeneration = tab.generation;
     if (tab.owner && tab.owner !== session.id) throw new Error("Tab is busy in another session.");
+    if (tab.suspendedOwner && tab.suspendedOwner !== session.id)
+      throw new Error("Tab is busy in another session while the user has control.");
     if (tab.stoppedByUser && !resume)
       throw new Error(
         "The user stopped control. Only after an explicit request to resume, bind with resume_after_user_stop: true.",
@@ -181,7 +191,20 @@ export class BrowserBroker {
       throw new Error("Session or tab expired during binding.");
     if (tab.owner && tab.owner !== session.id) throw new Error("Tab is busy in another session.");
     if (tab.stoppedByUser && !resume) throw new Error("The user stopped control. Explicit resumption is required.");
+    if (tab.suspendedOwner && tab.suspendedOwner !== session.id) throw new Error("Tab is busy in another session.");
+    if (tab.generation !== expectedGeneration) throw new Error("Tab control changed during binding.");
+    const previous = tab.control;
+    if (previous) {
+      tab.control = null;
+      await previous.dispose();
+      if (!this.sessions.has(session.id) || this.tabs.get(tab.id) !== tab || tab.page.isClosed())
+        throw new Error("Session or tab expired during binding.");
+      if (tab.generation !== expectedGeneration || tab.owner || tab.suspendedOwner !== session.id)
+        throw new Error("Tab control changed during binding; the stale return was cancelled.");
+    }
+    const wasStopped = tab.stoppedByUser;
     tab.owner = session.id;
+    tab.suspendedOwner = null;
     const generation = ++tab.generation;
     tab.abort = new AbortController();
     try {
@@ -191,15 +214,46 @@ export class BrowserBroker {
         onStop: () => {
           if (tab.owner === session.id && tab.generation === generation) void this.revokeTab(tab, "user_stopped", true);
         },
+        onReturn: async () => {
+          if (tab.control !== controller || tab.suspendedOwner !== session.id || !tab.stoppedByUser) return;
+          await this.context(session);
+          if (tab.control !== controller || tab.suspendedOwner !== session.id || !tab.stoppedByUser) return;
+          await this.bindTab(session, tab, true);
+        },
       });
       try {
         this.assertLease(session, tab, generation);
       } catch (error) {
+        // The mounted button can stop control before the factory result reaches
+        // the broker. Preserve that exact pause, but never revive its old lease.
+        await tab.revoking;
+        if (
+          this.sessions.has(session.id) &&
+          this.tabs.get(tab.id) === tab &&
+          tab.instance === session.instance &&
+          !tab.page.isClosed() &&
+          tab.generation === generation + 1 &&
+          !tab.owner &&
+          tab.suspendedOwner === session.id &&
+          tab.stoppedByUser &&
+          !tab.control
+        ) {
+          tab.control = controller;
+          try {
+            await controller.setMode("user", tab.generation);
+          } catch (modeError) {
+            if (tab.control === controller) await this.revokeTab(tab, "indicator_failed");
+            else await controller.dispose();
+            throw modeError;
+          }
+          throw error;
+        }
         await controller.dispose();
         throw error;
       }
       tab.control = controller;
       tab.stoppedByUser = false;
+      tab.needsSnapshot = wasStopped;
     } catch (error) {
       if (tab.generation === generation) await this.revokeTab(tab, "indicator_failed");
       throw error;
@@ -422,7 +476,18 @@ export class BrowserBroker {
   register(page, instance) {
     for (const [id, tab] of this.tabs) if (tab.page === page) return id;
     const id = randomUUID();
-    const tab = { id, page, instance, owner: null, generation: 0, control: null, abort: null, stoppedByUser: false };
+    const tab = {
+      id,
+      page,
+      instance,
+      owner: null,
+      suspendedOwner: null,
+      generation: 0,
+      control: null,
+      abort: null,
+      stoppedByUser: false,
+      needsSnapshot: false,
+    };
     this.tabs.set(id, tab);
     page.once("close", () => {
       this.trackCleanup(this.revokeTab(tab, "page_closed"));
@@ -557,21 +622,75 @@ export class BrowserBroker {
                 tab_id: id,
                 url: page.url(),
                 title,
-                ownership: tab.owner === session.id ? "mine" : tab.owner ? "busy" : "available",
+                ownership:
+                  (tab.owner ?? tab.suspendedOwner) === session.id
+                    ? "mine"
+                    : tab.owner || tab.suspendedOwner
+                      ? "busy"
+                      : "available",
                 stopped_by_user: tab.stoppedByUser,
+                control_state: tab.owner ? "agent" : tab.suspendedOwner ? "user" : "released",
+                requires_snapshot: tab.needsSnapshot,
               };
             }),
         ),
       };
     if (name === "browser_new_tab") {
-      const page = await context.newPage();
+      // The extension adapter honors Target.createTarget.background. Use the
+      // selected instance's existing connection; never open a second CDP client.
+      const instance = this.instances.get(session.instance);
+      const cdp = await instance.browser.newBrowserCDPSession();
+      let page;
+      let identify;
+      const createdTarget = new Promise((resolve) => {
+        identify = resolve;
+      });
+      try {
+        const pendingPage = context.waitForEvent("page", {
+          timeout: 10000,
+          predicate: async (candidate) => {
+            const targetId = await createdTarget;
+            if (!targetId || candidate.isClosed()) return false;
+            let targetSession;
+            try {
+              targetSession = await context.newCDPSession(candidate);
+              const { targetInfo } = await targetSession.send("Target.getTargetInfo");
+              return targetInfo.targetId === targetId;
+            } catch (error) {
+              // A different page may have appeared and closed while createTarget
+              // was pending. Live candidate failures must still surface.
+              if (candidate.isClosed()) return false;
+              throw error;
+            } finally {
+              await targetSession?.detach().catch((error) => {
+                if (!candidate.isClosed()) throw error;
+              });
+            }
+          },
+        });
+        // Consume a rejected wait if target creation itself fails.
+        pendingPage.catch(() => {});
+        const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank", background: true });
+        identify(targetId);
+        page = await pendingPage;
+      } finally {
+        identify(null);
+        await cdp.detach();
+      }
       const id = this.register(page, session.instance);
       await this.bindTab(session, this.tabs.get(id));
       return { tab_id: id };
     }
     if (name === "browser_bind") {
       await this.bindTab(session, this.tabs.get(args.tab_id), args.resume_after_user_stop);
-      return { bound: args.tab_id };
+      return { bound: args.tab_id, requires_snapshot: this.tabs.get(args.tab_id).needsSnapshot };
+    }
+    if (name === "browser_release") {
+      const tab = this.tabs.get(args.tab_id);
+      if (tab?.instance === session.instance && tab.suspendedOwner === session.id) {
+        await this.revokeTab(tab);
+        return { released: args.tab_id };
+      }
     }
     this.owned(session, args.tab_id);
     const tab = this.tabs.get(args.tab_id);
@@ -579,6 +698,8 @@ export class BrowserBroker {
       await this.revokeTab(tab);
       return { released: args.tab_id };
     }
+    if (tab.needsSnapshot && name !== "browser_snapshot")
+      throw new Error("Control was returned. Read browser_snapshot before continuing; do not replay old operations.");
     const generation = tab.generation;
     const signal = tab.abort.signal;
     const guard = () => this.assertLease(session, tab, generation);
@@ -593,6 +714,7 @@ export class BrowserBroker {
           guard();
           const result = await this.executePage(session, tab, name, args, guard);
           guard();
+          if (name === "browser_snapshot") tab.needsSnapshot = false;
           return result;
         })(),
         new Promise((_, reject) => {
@@ -635,7 +757,7 @@ export class BrowserBroker {
         title: await page.title(),
         snapshot: (await page.locator("body").ariaSnapshot({ timeout: 10000 })).slice(0, 50000),
       };
-    if (name === "browser_screenshot") return { image: (await page.screenshot({ timeout: 10000 })).toString("base64") };
+    if (name === "browser_screenshot") return { image: await screenshotPage(page, guard) };
     const locator = this.locator(page, args.target);
     if (["browser_click", "browser_fill", "browser_press"].includes(name)) {
       if (name === "browser_click") {

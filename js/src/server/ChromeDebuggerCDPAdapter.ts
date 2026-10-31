@@ -355,7 +355,10 @@ export class ChromeDebuggerCDPAdapter {
         case "Target.createTarget": {
           if (params.browserContextId && params.browserContextId !== "modcdp-default")
             throw new Error("Creating isolated browser contexts requires native browser CDP.");
-          const targetId = await this.upstream.createTarget(String(params.url ?? "about:blank"));
+          const targetId = await this.upstream.createTarget(
+            String(params.url ?? "about:blank"),
+            params.background === true,
+          );
           await this.refresh();
           return { targetId };
         }

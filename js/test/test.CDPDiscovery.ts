@@ -144,3 +144,24 @@ test("native debugger detach immediately invalidates the affected live page sess
   await assert.rejects(adapter.send("Page.getFrameTree", {}, String(initialSession)), /Unknown CDP session/);
   await adapter.reset();
 });
+
+test("target background creation preserves the active tab and keeps default foreground semantics", async () => {
+  const { state, api, adapter } = fixture();
+  const creations: { url: string; active: boolean }[] = [];
+  (api.tabs as any).create = async (options: { url: string; active: boolean }) => {
+    creations.push(options);
+    const tab = { id: state.tabs.length + 1, url: options.url, title: "created", incognito: false };
+    state.tabs.push(tab);
+    return tab;
+  };
+  try {
+    await adapter.send("Target.createTarget", { url: "about:blank", background: true });
+    await adapter.send("Target.createTarget", { url: "about:blank" });
+    assert.deepEqual(creations, [
+      { url: "about:blank", active: false },
+      { url: "about:blank", active: true },
+    ]);
+  } finally {
+    await adapter.reset();
+  }
+});

@@ -1,7 +1,7 @@
 ---
 description: >-
   Codex 与 Claude Code cdpHelper 插件的本地 Broker、实例显示编号与明确选择、多会话独占 tab、扩展 bridge
-  与断线保留及确认清理边界、后台升级交接与宿主重载、扩展版本诊断、Claude 工具 Schema 兼容、页面 JavaScript、人工停止接管、网络 Console 采集与性能 Trace 导出生命周期。
+  与断线保留及确认清理边界、后台升级交接与宿主重载、扩展版本诊断、Claude 工具 Schema 兼容、页面 JavaScript、停止与交还控制权、后台焦点模拟及视口截图、网络 Console 采集与性能 Trace 导出生命周期。
 kind: architecture
 code:
   paths:
@@ -12,6 +12,7 @@ code:
     - plugin/src/broker.mjs
     - plugin/src/bridge.mjs
     - plugin/src/control.mjs
+    - plugin/src/screenshot.mjs
     - plugin/src/instance-appearance.mjs
     - plugin/src/evaluate.mjs
     - plugin/src/diagnostics.mjs
@@ -22,6 +23,8 @@ code:
     - plugin/test/instance-numbers.test.mjs
     - plugin/test/control.test.mjs
     - plugin/test/control-ownership.test.mjs
+    - plugin/test/control-lifecycle.test.mjs
+    - plugin/test/background-tab.test.mjs
     - plugin/test/evaluate.test.mjs
     - plugin/test/diagnostics.test.mjs
     - plugin/test/tools.test.mjs
@@ -63,7 +66,7 @@ MCP stdio 握手与工具发现先于后台就绪，不因旧后台阻塞而让�
 
 后台版本较旧时先返回 `upgrade_required`，Agent 必须告知具体 plugin 版本及旧控制、诊断中断影响，再回传本次 `upgrade_notice_id` 作为 `acknowledge_upgrade_notice`；它记录告知已完成，不代替页面选择或清理同意。提示凭据仅在当前 MCP 接入内关联后台 PID、runtime 与私有 token，状态输出不泄露 token。确认立即返回 `upgrading`，后台异步交接；Agent 按返回间隔有界轮询，不能重复提交提示或重放页面操作。交接使旧会话、控制代次及页面引用失效，清理自有提示和采集，保留宿主、浏览器窗口、标签页与 profile；已发出的操作可能继续产生效果。
 
-启动锁内重新核对被告知的后台快照与已激活版本下限，防止陈旧确认、并发替换或旧宿主重新启动低版本后台。同版本不同摘要拒绝接管。支持升级协议的后台先协作退出且有退出预算；旧协议后台仅在 Windows 核验自有运行时目录、构建身份、Node executable 和完整 daemon 参数后才允许定向终止，验证失败不杀进程。任何交接都不关闭宿主或浏览器。宿主加载版本落后于已激活后台时返回 `plugin_reload_required`，明确要求重载对应 Codex 或 Claude Code 的 plugin 配置，不支持时退出重开该宿主；MCP 重连可能继续沿用旧路径，不能等同插件配置重载。
+启动锁内重新核对被告知的后台快照与已激活版本下限，防止陈旧确认、并发替换或旧宿主重新启动低版本后台。同版本不同摘要拒绝接管。支持升级协议的后台先协作退出且有退出预算；客户端等待须在后台清理看门狗预算之外保留进程退出与调度的观测余量，不能因两侧截止点相同而误入强制终止分支，也不能因此放松进程归属校验。旧协议后台仅在 Windows 核验自有运行时目录、构建身份、Node executable 和完整 daemon 参数后才允许定向终止，验证失败不杀进程。任何交接都不关闭宿主或浏览器。宿主加载版本落后于已激活后台时返回 `plugin_reload_required`，明确要求重载对应 Codex 或 Claude Code 的 plugin 配置，不支持时退出重开该宿主；MCP 重连可能继续沿用旧路径，不能等同插件配置重载。
 
 定向终止自有 Node 后台仍可能连带结束它启动的浏览器。Windows 的 libuv 将非 detached 子进程纳入父进程私有的 kill-on-close Job Object，`unref()` 不能解除该关系。隔离启动通过 `spawnIndependentBrowser` 使用 `detached: true`、忽略 stdio 并 `unref()`，同时保持 GUI 可见；记录与 owner marker 同时保存 `lifetime_detached: true` 作为启动证明，不能仅按 plugin 版本推断。
 
@@ -83,13 +86,21 @@ Broker 为所选实例持有唯一 Playwright 连接，多会话共享该连接�
 
 Broker 的 tab 归属是操作授权，Playwright 的底层 debugger 附加不是。Playwright 负责操作和观察页面，ModCDP 补齐扩展调试通道与标准 CDP 客户端的差异，插件负责将能力包装成 MCP 工具、资源归属和可查询结果；新增工具优先复用现有连接，只在测试证明协议缺口后修改适配层。
 
-每次绑定具有独立控制代次。工具入队时记录代次，执行前再验证，释放或重新绑定不能复活旧队列。页面内接管栏、目标轮廓和真实鼠标事件提示仅随绑定生命周期存在；安装失败回滚绑定，导航后重建。提示层运行在独立 world，以 closed Shadow DOM 隔离页面样式，正文快照不把它当作业务内容。页面提示不同于浏览器原生全局 debugger 提示，也不能替代 Broker 的授权校验。
+每次绑定具有独立控制代次。工具入队时记录代次，执行前再验证，释放或重新绑定不能复活旧队列。接管栏随 Agent 控制或原会话的人工暂停关联存在，操作目标轮廓和鼠标提示仅用于 Agent 操作；安装失败回滚绑定，导航后重建当前状态。若已挂载按钮在安装确认前收到真实停止，迟到控制器仅可保留仍对应原会话和该次停止的人工入口，不能复活旧租约，也不能移除唯一的交还入口；更晚的释放、断连或代次变化优先。提示层运行在独立 world，以 closed Shadow DOM 隔离页面样式，正文快照不把它当作业务内容。页面提示不同于浏览器原生全局 debugger 提示，也不能替代 Broker 的授权校验。释放、页面关闭和断连后清理提示；现有和新文档提示都有有效期，后台失联不能让旧标识无限存活，也不能为清理私有脚本而关闭 Playwright 共用的调试域。
 
-接管 UI 由 plugin 注入，扩展只桥接调试通信，网页点击仍由 Playwright 执行。提示层的被动显示穿透指针，只有“停止控制”按钮接收事件；接管栏按当前操作目标框避让，不改写源站布局或样式。点击目标先通过 Playwright 滚入视口，再测量并更新提示位置，继续使用普通 locator 点击和命中校验，不以强制点击、页面脚本点击或禁用停止入口绕过遮挡。closed Shadow DOM 内的停止按钮被命中时，错误可能只报告外层控制 host，不能据此判断整屏透明层都在拦截。
+接管 UI 由 plugin 注入，扩展只桥接调试通信，网页点击仍由 Playwright 执行。提示层的被动显示穿透指针，只有当前控制权按钮接收事件；接管栏按当前操作目标框避让，不改写源站布局或样式。点击目标先通过 Playwright 滚入视口，再测量并更新提示位置，继续使用普通 locator 点击和命中校验，不以强制点击、页面脚本点击或禁用停止入口绕过遮挡。closed Shadow DOM 内的按钮被命中时，错误可能只报告外层控制 host，不能据此判断整屏透明层都在拦截。页面没有输入拦截或遮罩；切换标签页、应用、点击业务页面都不自动转移控制权，用户独立操作前应显式停止。
 
-人工停止通过页面专用 Runtime binding 通知 Broker，验证来源执行上下文、随机凭据和控制代次，不等待普通工具队列。Broker 先撤销归属、更新代次并中断本地等待，再清理提示及采集；其他页面和会话不受影响。普通重新绑定不能越过用户停止标记，只有用户明确要求恢复后才可使用恢复确认参数。已经发送的操作和脚本可能继续产生副作用，本地停止不等于浏览器回滚，不自动重试未知结果。
+“停止控制”通过页面专用 Runtime binding 通知 Broker，验证来源执行上下文、随机凭据和控制代次，不等待普通工具队列。Broker 立即撤销 Agent 执行授权、更新代次并中断本地等待，停止本页采集，保留“用户控制中”和“交还控制权”按钮。人工暂停以 suspendedOwner 关联原会话，其他会话仍只能看到 busy；这不是可供抢占的空闲页。
 
-提示层必须在释放、页面关闭和断连后清理。新文档注入和现有文档提示都有有效期，后台失联不能让旧控制标识无限存活；不能为清理插件私有脚本而关闭 Playwright 共用的调试域。
+用户真实点击“交还控制权”经同一来源和凭据校验后，只为仍有效的原会话建立新控制代次；旧控制栏、断连和过期事件不能恢复授权。恢复等待旧控制清理后还须重验归属与代次，避免陈旧交还覆盖新绑定。普通重新绑定不能越过用户停止标记，只有用户明确要求恢复后才可使用恢复确认参数。恢复后 requires_snapshot 为真，必须先成功读取 browser_snapshot 才能继续页面工具；不自动重放旧队列。已经发送的操作和脚本可能继续产生副作用，本地停止不等于浏览器回滚，不自动重试未知结果。browser_tabs 的 control_state 区分 agent、user、released，人工暂停不能仅凭 owner 为空判断为可绑定。
+
+## 后台操作与截图边界
+
+插件保留 noDefaults 连接，仅对正在控制的页面启用 Emulation 焦点模拟，导航后重应用；人工停止时禁用，释放、关闭或断连时清理。导航后的重应用缓存与必须撤销模拟的资源标记分开，不能因导航紧接释放而漏掉清理。焦点模拟不等于切换真实活动标签页或将窗口置前台。新建页面经现有实例连接请求后台 target，并按返回 target 身份匹配页面，再绑定到创建会话；不能把任意抢先出现的 page 事件当作新建结果。无关页面在匹配过程中关闭或失效不能终止本次目标的等待；本次创建失败或目标超时仍须明确失败。
+
+视口截图只使用同一受控 Page 的现有 Playwright 连接。优先通过内部页 CDPSession 进行无 clip 的 surface capture，保留 captureBeyondViewport=false，并校验 PNG 与当前视口的比例；原生像素密度可能不同于网页报告的 devicePixelRatio，不能把二者直接等同。该路径避免有 clip 时临时调整视图的引擎分支；不可用或比例不符时回退普通 Playwright 视口截图，失败明确返回。不得改截活动标签页、系统桌面、整页，或通过激活标签页、恢复窗口来兜底。
+
+后台输入、DOM 快照和返回图片分别验收；截图还须验证最新操作确实出现在图中。测试 Chromium 的扩展集成成功不能代替真实雪诺验收；曾激活页面的截图成功也不能证明从未激活页面或最小化状态可用。焦点模拟和恢复默认初始化均不构成所有后台截图一定成功的保证，不能把未通过的引擎场景报告为完成。“不抢前台”还覆盖启动、窗口状态操作、失败恢复、释放和清理，恢复原窗口状态也可能激活窗口，不能作为无副作用的收尾。浏览器 focused 的离散快照不能证明全程没有系统前台或层叠顺序变化；验收须以连续系统窗口事件观测结合目标状态与 Z 序采样，覆盖启动前到清理后，报告实际采样间隔和观测缺口，不用单次前后快照代替生命周期证据。
 
 ## 页面脚本与诊断数据
 
