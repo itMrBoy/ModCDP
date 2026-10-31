@@ -200,6 +200,55 @@ test(
 );
 
 test(
+  "cooperative upgrade observes self-exit beyond ten seconds before using signal fallback",
+  { timeout: 25000 },
+  async () => {
+    const home = await mkdtemp(path.join(base, "exit-observation-home-"));
+    let old;
+    try {
+      const oldConfig = await fixture(home, "1.0.0", "a");
+      const marker = path.join(home, "self-exited");
+      await writeFile(
+        oldConfig.entry,
+        `import http from 'node:http';import fs from 'node:fs/promises';
+        const runtime=${JSON.stringify(oldConfig.runtime)};
+        let retiring=false;
+        const server=http.createServer(async(req,res)=>{
+          let raw='';for await(const chunk of req)raw+=chunk;
+          const {operation}=JSON.parse(raw);
+          res.setHeader('content-type','application/json');
+          if(operation==='upgrade'){
+            res.end(JSON.stringify({retiring:true}));
+            if(!retiring){retiring=true;setTimeout(async()=>{
+              await fs.writeFile(${JSON.stringify(marker)},'self-exited');process.exit(0);
+            },10500);}
+          }else res.end(JSON.stringify({runtime,pid:process.pid,sessions:0,closing:retiring,service_protocol:1}));
+        });
+        await new Promise(r=>server.listen(0,'127.0.0.1',r));
+        await fs.writeFile(${JSON.stringify(path.join(home, "daemon.json"))},JSON.stringify({runtime,pid:process.pid,port:server.address().port,token:'exit-observation',entry:${JSON.stringify(oldConfig.entry)},service_protocol:1}));`,
+      );
+      old = await ensureDaemon(oldConfig);
+      const started = Date.now();
+      const next = await ensureDaemon(await fixture(home, "2.0.0", "b"), { upgradeFrom: old });
+      assert.equal(
+        await readFile(marker, "utf8"),
+        "self-exited",
+        "the old daemon exits itself without an early signal",
+      );
+      assert.equal(alive(old.pid), false);
+      assert.ok(Date.now() - started < 15000, "exit observation remains bounded");
+      assert.equal((await rpc(next, "status")).runtime, "2.0.0:" + "b".repeat(64));
+    } finally {
+      // Even when the assertion fails, let this fixture's scheduled self-exit
+      // finish before removing its runtime. Do not bypass ownership with a kill.
+      for (let i = 0; old && alive(old.pid) && i < 120; i++) await new Promise((r) => setTimeout(r, 100));
+      await stop(home);
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "verified legacy Windows daemon is migrated without terminating its parent host",
   { timeout: 20000, skip: process.platform !== "win32" },
   async () => {

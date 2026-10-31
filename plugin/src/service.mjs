@@ -335,7 +335,10 @@ export async function ensureDaemon(config, { upgradeFrom } = {}) {
         else {
           await signalOwnedDaemon(meta, home, "SIGTERM");
         }
-        const deadline = Date.now() + 10000;
+        // The cooperative daemon starts its ten-second watchdog after the RPC
+        // acknowledgement. Allow scheduling/exit observation time before any
+        // separately ownership-verified signal fallback.
+        const deadline = Date.now() + (status.service_protocol === 1 ? 12000 : 10000);
         while (alive(meta.pid) && Date.now() < deadline) await delay(100);
         if (alive(meta.pid)) {
           await signalOwnedDaemon(meta, home, "SIGKILL");
