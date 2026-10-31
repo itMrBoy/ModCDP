@@ -66,7 +66,7 @@ MCP stdio 握手与工具发现先于后台就绪，不因旧后台阻塞而让�
 
 后台版本较旧时先返回 `upgrade_required`，Agent 必须告知具体 plugin 版本及旧控制、诊断中断影响，再回传本次 `upgrade_notice_id` 作为 `acknowledge_upgrade_notice`；它记录告知已完成，不代替页面选择或清理同意。提示凭据仅在当前 MCP 接入内关联后台 PID、runtime 与私有 token，状态输出不泄露 token。确认立即返回 `upgrading`，后台异步交接；Agent 按返回间隔有界轮询，不能重复提交提示或重放页面操作。交接使旧会话、控制代次及页面引用失效，清理自有提示和采集，保留宿主、浏览器窗口、标签页与 profile；已发出的操作可能继续产生效果。
 
-启动锁内重新核对被告知的后台快照与已激活版本下限，防止陈旧确认、并发替换或旧宿主重新启动低版本后台。同版本不同摘要拒绝接管。支持升级协议的后台先协作退出且有退出预算；旧协议后台仅在 Windows 核验自有运行时目录、构建身份、Node executable 和完整 daemon 参数后才允许定向终止，验证失败不杀进程。任何交接都不关闭宿主或浏览器。宿主加载版本落后于已激活后台时返回 `plugin_reload_required`，明确要求重载对应 Codex 或 Claude Code 的 plugin 配置，不支持时退出重开该宿主；MCP 重连可能继续沿用旧路径，不能等同插件配置重载。
+启动锁内重新核对被告知的后台快照与已激活版本下限，防止陈旧确认、并发替换或旧宿主重新启动低版本后台。同版本不同摘要拒绝接管。支持升级协议的后台先协作退出且有退出预算；客户端等待须在后台清理看门狗预算之外保留进程退出与调度的观测余量，不能因两侧截止点相同而误入强制终止分支，也不能因此放松进程归属校验。旧协议后台仅在 Windows 核验自有运行时目录、构建身份、Node executable 和完整 daemon 参数后才允许定向终止，验证失败不杀进程。任何交接都不关闭宿主或浏览器。宿主加载版本落后于已激活后台时返回 `plugin_reload_required`，明确要求重载对应 Codex 或 Claude Code 的 plugin 配置，不支持时退出重开该宿主；MCP 重连可能继续沿用旧路径，不能等同插件配置重载。
 
 定向终止自有 Node 后台仍可能连带结束它启动的浏览器。Windows 的 libuv 将非 detached 子进程纳入父进程私有的 kill-on-close Job Object，`unref()` 不能解除该关系。隔离启动通过 `spawnIndependentBrowser` 使用 `detached: true`、忽略 stdio 并 `unref()`，同时保持 GUI 可见；记录与 owner marker 同时保存 `lifetime_detached: true` 作为启动证明，不能仅按 plugin 版本推断。
 
