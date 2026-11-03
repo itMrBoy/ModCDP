@@ -9,7 +9,7 @@ import type { ProtocolParams, ProtocolResult } from "../types/modcdp.js";
 import { modCDPToJSON } from "../types/toJSON.js";
 
 const EXT_ID_FROM_URL = /^chrome-extension:\/\/([a-z]+)\//;
-const DEFAULT_MODCDP_EXTENSION_ID = "mdedooklbnfejodmnhmkdpkaedafkehf";
+const DEFAULT_MODCDP_EXTENSION_ID = "heikjbncglkkafkabolnhofdldgajbdo";
 const DEFAULT_MODCDP_SERVICE_WORKER_URL_SUFFIXES = ["/modcdp/service_worker.js"];
 const MODCDP_READY_EXPRESSION = "Boolean(globalThis.ModCDP?.handleCommand && globalThis.ModCDP?.addCustomEvent)";
 const DEFAULT_CDP_SEND_TIMEOUT_MS = 10_000;
