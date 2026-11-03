@@ -3,9 +3,17 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { previousRelease, publishRelease, releaseMetadata } from "../../js/scripts/release-extension.mjs";
+
+import { signRelease } from "../../js/scripts/sign-extension-release.mjs";
+import { extensionId } from "../../js/scripts/crx3.mjs";
+import { writeZip } from "../../js/scripts/extension-zip.mjs";
+const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const publicDer = publicKey.export({ type: "spki", format: "der" });
+const fixtureId = extensionId(publicDer);
+const fixtureKey = privateKey.export({ type: "pkcs8", format: "pem" });
 
 const sourceCommit = "a".repeat(40);
 const distributionCommit = "b".repeat(40);
@@ -29,7 +37,11 @@ async function bundleFixture(t, { previousTag = null } = {}) {
   const version = "0.1.11";
   const tag = `v${version}`;
   const extensionFilename = `cdphelper-extension-${tag}.zip`;
-  const extension = Buffer.from("fixture extension ZIP bytes");
+  const files = new Map([
+    ["manifest.json", Buffer.from(JSON.stringify({ version, key: publicDer.toString("base64") }))],
+    ["cdphelper-bridge.json", Buffer.from(JSON.stringify({ source_commit: sourceCommit, extension_version: version }))],
+  ]);
+  const extension = writeZip(new Map([...files].map(([name, bytes]) => ["extension/" + name, bytes])));
   const manifest = {
     plugin_version: version,
     extension_version: version,
@@ -39,7 +51,12 @@ async function bundleFixture(t, { previousTag = null } = {}) {
     previous_release_tag: previousTag,
     protocol_version: 2,
     plugin_artifact: { sha256: artifactHash },
-    extension: { filename: extensionFilename, sha256: hash(extension), files: { "manifest.json": "d".repeat(64) } },
+    extension: {
+      filename: extensionFilename,
+      sha256: hash(extension),
+      expected_extension_id: fixtureId,
+      files: Object.fromEntries([...files].map(([name, bytes]) => [name, hash(bytes)])),
+    },
   };
   await fs.writeFile(path.join(assets, extensionFilename), extension);
   await writeJSON(path.join(assets, "release-manifest.json"), manifest);
@@ -64,7 +81,13 @@ async function bundleFixture(t, { previousTag = null } = {}) {
     assets: assetHashes,
   };
   await writeJSON(path.join(bundle, "release-plan.json"), plan);
-  return { bundle, manifest, plan, assets };
+  await signRelease({ bundle, privateKey: fixtureKey });
+  return {
+    bundle,
+    manifest: JSON.parse(await fs.readFile(path.join(assets, "release-manifest.json"))),
+    plan: JSON.parse(await fs.readFile(path.join(bundle, "release-plan.json"))),
+    assets,
+  };
 }
 
 function remote({ releases = [], manifest, draft, tags } = {}) {
@@ -90,7 +113,7 @@ function remote({ releases = [], manifest, draft, tags } = {}) {
 const writes = (calls) =>
   calls.filter(({ command, args }) => command === "gh" && ["create", "upload", "edit"].includes(args[1]));
 
-test("publishing creates a draft, uploads only the three verified assets, then publishes at exact B", async (t) => {
+test("publishing creates a draft, uploads only the four verified assets, then publishes at exact B", async (t) => {
   const { bundle, plan } = await bundleFixture(t);
   const { run, calls } = remote();
   assert.deepEqual(await publishRelease({ bundle, run }), { published: true, skipped: false, tag: plan.tag });
@@ -111,7 +134,12 @@ test("publishing creates a draft, uploads only the three verified assets, then p
       .slice(actions[1].args.indexOf("--clobber") + 1)
       .map((file) => path.basename(file))
       .sort(),
-    ["SHA256SUMS", "cdphelper-extension-v0.1.11.zip", "release-manifest.json"].sort(),
+    [
+      "SHA256SUMS",
+      "cdphelper-extension-v0.1.11.zip",
+      "cdphelper-extension-v0.1.11.crx",
+      "release-manifest.json",
+    ].sort(),
   );
 });
 
