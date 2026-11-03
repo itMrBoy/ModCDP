@@ -7,6 +7,7 @@ import { gunzipSync } from "node:zlib";
 import { parseArgs } from "node:util";
 import { validateMarketplace } from "./deliver-plugin.mjs";
 import { releaseNotes } from "./release-notes.mjs";
+import { verifyReleaseBundle } from "./sign-extension-release.mjs";
 
 const repository = "itMrBoy/cdpHelper";
 const managed = [".agents/plugins/marketplace.json", ".claude-plugin/marketplace.json", "plugins/cdphelper"];
@@ -210,12 +211,18 @@ export async function prepareRelease({ tooling, source, distribution, output, pr
 }
 
 export async function publishRelease({ bundle, run = command }) {
+  await verifyReleaseBundle(bundle);
   const plan = await readJSON(path.join(bundle, "release-plan.json"));
   versionNumber(plan.version);
   sha(plan.source_commit);
   sha(plan.distribution_commit);
   equal(plan.tag, `v${plan.version}`, "tag");
-  const expectedFiles = [`cdphelper-extension-v${plan.version}.zip`, "release-manifest.json", "SHA256SUMS"].sort();
+  const expectedFiles = [
+    `cdphelper-extension-v${plan.version}.zip`,
+    `cdphelper-extension-v${plan.version}.crx`,
+    "release-manifest.json",
+    "SHA256SUMS",
+  ].sort();
   equal(Object.keys(plan.assets).sort().join(), expectedFiles.join(), "asset inventory");
   const assets = path.join(bundle, "assets");
   equal(
@@ -270,6 +277,11 @@ export async function publishRelease({ bundle, run = command }) {
       "published version source; bump the version instead of replacing it",
     );
     equal(remote.plugin_artifact.sha256, plan.artifact_sha256, "published plugin checksum; bump the version");
+    equal(
+      JSON.stringify(remote.extension.crx),
+      JSON.stringify(manifest.extension.crx),
+      "published CRX; bump the version",
+    );
     equal(
       JSON.stringify(remote.extension.files),
       JSON.stringify(manifest.extension.files),

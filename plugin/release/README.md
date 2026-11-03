@@ -1,5 +1,9 @@
 # cdpHelper extension
 
+Official Releases provide both `cdphelper-extension-v<version>.crx` and ZIP. Install the CRX through the target browser's supported extension installation flow; the unpacked-directory instructions below apply only to ZIP installations. Keep the plugin and extension on the same version.
+
+Starting with 0.2.3, both formats use the permanent ID `heikjbncglkkafkabolnhofdldgajbdo`. Existing CRX users with this ID can install the newer official CRX. Users of the old ID `mdedooklbnfejodmnhmkdpkaedafkehf` must install the new identity and update the matching plugin, then manually restore their service address and instance name; storage does not migrate across IDs. Disable the old copy after the new extension registers. Do not repack with a new signing key, which changes the ID and causes the backend to reject it.
+
 This archive is the browser extension only. Install the AI plugin separately from the [cdpHelper marketplace](https://github.com/itMrBoy/cdpHelper). Node >=22 is required for the plugin; users do not run npm install or download Chromium.
 
 1. Download the extension archive from the [matching cdpHelper Release](https://github.com/itMrBoy/cdpHelper/releases) and extract it to a stable directory. Keep the plugin and extension on the same version.
@@ -30,6 +34,8 @@ claude plugin update cdphelper@cdphelper-plugins
 After updating, exit and reopen the corresponding Codex or Claude Code host to load the new cdpHelper plugin. Reconnecting MCP alone may reuse the old launch path. If installed in both hosts, update each separately. Snow Browser does not need to restart. Backend handover may interrupt old page control and diagnostics; operations already sent may still take effect. Select the instance and page again afterward; operations are not replayed automatically.
 
 ## Update the cdpHelper browser extension
+
+For a CRX installation, install the matching newer official CRX through the browser's supported update flow and verify its ID and version. The following file replacement steps apply only to unpacked installations. Browser policy may restrict installation; do not bypass it.
 
 1. Download the Release extension ZIP matching your cdpHelper plugin version and extract it to a temporary directory.
 2. Replace the extension files at the original loaded location with the complete contents of the new archive's `extension/` directory. Keep the original path and do not uninstall the extension.

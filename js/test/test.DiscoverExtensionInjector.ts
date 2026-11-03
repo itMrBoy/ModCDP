@@ -42,10 +42,10 @@ test("DiscoverExtensionInjector attaches to an already-loaded real ModCDP extens
     });
     await cdp.connect();
     assert.equal(cdp.connect_timing?.injector_source, "discover");
-    assert.equal(cdp.injector?.extension_id, "mdedooklbnfejodmnhmkdpkaedafkehf");
+    assert.equal(cdp.injector?.extension_id, "heikjbncglkkafkabolnhofdldgajbdo");
     assert.equal(
       await cdp.Mod.evaluate({ expression: "chrome.runtime.getURL('modcdp/service_worker.js')" }),
-      "chrome-extension://mdedooklbnfejodmnhmkdpkaedafkehf/modcdp/service_worker.js",
+      "chrome-extension://heikjbncglkkafkabolnhofdldgajbdo/modcdp/service_worker.js",
     );
   } finally {
     await cdp?.close();

@@ -1,5 +1,9 @@
 # cdpHelper 浏览器扩展
 
+正式 Release 同时提供 `cdphelper-extension-v<版本号>.crx` 和 ZIP。CRX 用户通过目标浏览器支持的扩展安装入口安装，下面的目录加载说明仅适用于 ZIP。插件与扩展保持相同版本。
+
+从 0.2.3 起，两种格式统一使用固定 ID `heikjbncglkkafkabolnhofdldgajbdo`。已安装该 ID 的 CRX 用户安装新版本即可；原 ID `mdedooklbnfejodmnhmkdpkaedafkehf` 的用户须安装新身份的扩展并更新配套 plugin，手动重新填写服务地址和实例名称，扩展 storage 不跨 ID 自动迁移。确认新扩展登记成功后停用旧副本。不要自行使用新密钥重新打包 CRX，否则 ID 会变化并被后台拒绝。
+
 此压缩包仅包含浏览器扩展。AI 插件请从 [cdpHelper 插件市场](https://github.com/itMrBoy/cdpHelper)单独安装。插件需要 Node >=22；用户无需执行 npm install，也不下载 Chromium。
 
 1. 从 [cdpHelper 对应 Release](https://github.com/itMrBoy/cdpHelper/releases) 下载扩展 ZIP，解压到稳定目录。插件与扩展保持相同版本。
@@ -30,6 +34,8 @@ claude plugin update cdphelper@cdphelper-plugins
 命令完成后，退出并重新打开对应的 Codex 或 Claude Code，以加载新的 cdpHelper plugin；仅重连 MCP 可能继续使用旧启动路径。两端都安装了 plugin 时，分别执行各自的更新命令。无需重启雪诺。后台交接可能中断旧页面控制和诊断采集，已发出的操作可能继续产生效果；恢复后重新选择实例和页面，不自动重放操作。
 
 ## 更新 cdpHelper 浏览器扩展
+
+CRX 安装用户通过浏览器支持的更新入口安装匹配版本的官方 CRX，并核对 ID 和版本；以下文件覆盖步骤仅适用于“加载已解压的扩展”。浏览器策略可能限制安装，不绕过这些限制。
 
 1. 下载与 cdpHelper plugin 相同版本的 Release 扩展 ZIP，先解压到临时目录。
 2. 用新包中 `extension/` 的完整内容替换原加载目录的扩展文件，保持原加载路径，不卸载扩展。

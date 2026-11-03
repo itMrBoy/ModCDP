@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "cdpHelper",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "description": "Extension service worker bridge for ModCDP custom commands and events.",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxd/1dI8epjKRdIOMd5V2sajM8+zIjZIEbznIG7/VLZXd3fDG9+Zz9T1ani6GeXWfaxaj5OcxefhbU1yJ5lT8fEHLM/uT/53QJHmMnfuiSjWbGqT7SCpDDjUmn64X5yYD8pMVW0f/EHthGPwlG3n+JDkgEv/5wBcQohxPZdVuGhmoQG6C5wU38tDh/Q+lYMiLb5lhtDSJoTt4c7nAgXeWo8mZGBk29QkHMhHlUIewPjcjeIny/RO9+Q7mp1Nnsya6f/hg5iQVPZLVJx/lyneX7v2I0r4ibA6u2uxNDqbmK+SgrP2RnBoAZCDOb+n2PQlXbQJFxL4WfgxCCQgiC3C+5QIDAQAB",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuSqvUcuLtpivqki81TGBwNGMursQQEXSY4GNZQbHzZjYqsTOl2pdEHlCLpcP6BkreiXqzeI621k7tFoqFdYbggppePlMMEBwx9LYb6L2xP5UqTYmY4qOuootDuyE7tGtoKTKFGwvXiUcN2717/Og6rIl/YfmCXAMwTJXfJPZO5XO6p6RXiqDrQKJjOBYjxoAb/iHguJtufQyzANErWeslET95QwndtQ1iS4ULpyf9YwcmH6RG1vOUQniYP/c1yn8KXOWENJHNcJxWcUJp/p7yJTQLdA5Bo+6hj7zWWx/QVUJo0ThAUEvKnFuv2eAuhxYEjdDNXglcrMWu9xASV8f0wIDAQAB",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/logo.png",

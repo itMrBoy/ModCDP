@@ -89,7 +89,11 @@ NATS 可通过 `--enable-nats` 开启，也可与 `--enable-reversews` 同时传
 
 全部发布输入只在 ModCDP 维护，包括 `plugin/skills/cdphelper/` 技能、运行时和清单生成逻辑；cdpHelper 中的生成文件不手工修改。`pnpm run build:plugin` 无需初始化子模块即可生成完整本地候选。提交干净源码且 `cdpHelper/` 子模块已初始化、工作区干净后，执行 `pnpm run deliver:plugin`，构建并校验正式候选、备份受管文件后，仅更新 `.agents/plugins/marketplace.json`、`.claude-plugin/marketplace.json` 和 `plugins/cdphelper/`；失败恢复受管文件。该命令保留子仓 README 和 Git 数据，报告来源与文件差异，不自动提交或推送。扩展 ZIP 仍单独用于 Release。
 
-扩展发布 CI 位于 [release-extension.yml](.github/workflows/release-extension.yml)。版本更新 PR 合并到 `main` 后，它锁定父仓所引用的分发提交 B，按插件元数据中的源码提交 A 构建和验证扩展，在 cdpHelper 自动创建 `v<版本>` tag 并正式发布三个附件：扩展 ZIP、`release-manifest.json` 和 `SHA256SUMS`。发布清单引用 B 中的真实插件摘要，不用其他平台重建的插件替换 B。发布说明自动按上一已发布版本到 A 的源码提交生成中文分类列表，附版本、来源及安装说明；首次发布只列出最近相关提交，不宣称覆盖全部历史。
+扩展发布 CI 位于 [release-extension.yml](.github/workflows/release-extension.yml)。版本更新 PR 合并到 `main` 后，它锁定父仓所引用的分发提交 B，按插件元数据中的源码提交 A 构建和验证扩展，在 cdpHelper 自动创建 `v<版本>` tag 并正式发布四个附件：扩展 ZIP、签名 CRX、`release-manifest.json` 和 `SHA256SUMS`。发布清单引用 B 中的真实插件摘要，不用其他平台重建的插件替换 B。发布说明自动按上一已发布版本到 A 的源码提交生成中文分类列表，附版本、来源及安装说明；首次发布只列出最近相关提交，不宣称覆盖全部历史。
+
+在 ModCDP Actions Secrets 配置 `CDPHELPER_EXTENSION_SIGNING_KEY`，保存长期使用的 PEM 私钥，并在 Git 仓库外独立备份。仅独立签名 job 接收该 Secret，构建测试和发布 job 均不接收。签名前核验候选 ZIP，使用 Node crypto 生成 CRX3；发布前再次验证签名、身份和包内文件。密钥缺失或不匹配时停止，禁止在发布时生成新密钥。私钥不得进入日志、缓存和附件。清单在 `extension.crx` 记录 CRX 文件名、SHA-256 和 ID，校验清单覆盖两个扩展包及 manifest。
+
+用户可下载 `cdphelper-extension-v<版本号>.crx`，通过雪诺支持的扩展安装入口安装，也可按下文加载 ZIP。从 0.2.3 起，两种格式统一使用固定 ID `heikjbncglkkafkabolnhofdldgajbdo`。已有此 ID 的 CRX 用户安装新版本即可；原 ID `mdedooklbnfejodmnhmkdpkaedafkehf` 用户须安装新身份并更新配套 plugin，手动填写服务地址和实例名称，成功登记后停用旧副本。storage 不跨 ID 自动迁移。不要用另一把私钥重新打包，否则后台拒绝不同 ID。浏览器策略可能限制 CRX 安装，静态签名检查不代表真实安装和升级验收通过。
 
 启用前，在 **ModCDP → Settings → Secrets and variables → Actions** 配置 `CDPHELPER_RELEASE_TOKEN`：fine-grained token 仅选择 cdpHelper，授予 **Contents: Read and write**。两仓须先推送源码 A、分发 B 和 `main`，否则无法取得固定提交。后续先更新 `plugin/version.json`、完成源码提交和 `deliver:plugin`、提交并推送子仓产物，再以 merge commit 将父仓指针 PR 合并到 `main`，保留来源 A 的原始 SHA。已发布同版本且候选一致时跳过；候选变化必须升级版本，不能覆盖已发布附件。失败重试可在 Actions 的 **Release cdpHelper extension** 手动运行；只恢复属于同一候选的草稿，发布基线发生变化或已有更高版本时拒绝发布并提示处理。
 

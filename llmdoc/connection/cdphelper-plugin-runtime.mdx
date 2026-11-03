@@ -74,9 +74,9 @@ MCP stdio 握手与工具发现先于后台就绪，不因旧后台阻塞而让�
 
 运行时与固定版本生产依赖以 runtime.pack.gz 随包交付，插件 Git 树不包含展开的 node_modules。入口使用 Node 内置能力先校验外层产物，再按内部 runtime inventory 核验文件路径、内容与权限，并限制解压大小；首次运行只在用户运行时目录内物化文件，完整验证后原子启用，后续仍校验缓存。缺失或校验失败须报告，不能联网补装或跳过校验。依赖在本机缓存展开是运行准备，不代表将依赖目录提交到仓库。
 
-多个普通 profile 统一通过 127.0.0.1:29393/bridge 登记为独立实例；公共监听入口不等于共用实例身份。每个 profile 的连接身份保存在自己的扩展 storage 中。`plugin/src/bridge.mjs` 拥有29393监听、扩展 Origin 与 hello 协议/版本核验，以及每个 peer 到各自认证代理的 relay；这些职责不下沉为普通页面权限。用户从独立 Release ZIP 自行安装扩展，插件不接收目录、不下载或复制扩展、不提供 configure_extension，不向公共扩展目录写入凭据。
+多个普通 profile 统一通过 127.0.0.1:29393/bridge 登记为独立实例；公共监听入口不等于共用实例身份。每个 profile 的连接身份保存在自己的扩展 storage 中。`plugin/src/bridge.mjs` 拥有29393监听、扩展 Origin 与 hello 协议/版本核验，以及每个 peer 到各自认证代理的 relay；这些职责不下沉为普通页面权限。用户从独立 Release CRX 或 ZIP 自行安装扩展，插件不接收目录、不下载或复制扩展、不提供 configure_extension，不向公共扩展目录写入凭据。
 
-登记拒绝区分扩展身份、桥接协议与配套 Release 版本，不能一律解释为扩展未连接。bridge 只保留短期、有界且脱敏的拒绝摘要，不记录原始 hello、启动 token、名称或网页信息；Broker 状态可在实例未登记时报告这些问题。扩展版本落后时 `extension_update_required` 指向浏览器扩展手动更新；扩展较新时 `plugin_update_required` 指向对应宿主的 plugin 更新或配置重载，不能要求降级扩展。身份及协议错误沿用各自恢复动作，不将任何拒绝记录视为可选实例或控制授权。
+登记拒绝区分扩展身份、桥接协议与配套 Release 版本，不能一律解释为扩展未连接。bridge 只保留短期、有界且脱敏的拒绝摘要，不记录原始 hello、启动 token、名称或网页信息；Broker 状态可在实例未登记时报告这些问题。扩展版本落后时 `extension_update_required` 指向浏览器扩展手动更新；扩展较新时 `plugin_update_required` 指向对应宿主的 plugin 更新或配置重载，不能要求降级扩展。身份及协议错误沿用各自恢复动作，不将任何拒绝记录视为可选实例或控制授权。从 0.2.3 起，正式 CRX 与 ZIP 使用固定身份 `heikjbncglkkafkabolnhofdldgajbdo`。解压加载依据 manifest key，CRX 身份绑定签名公钥；包内 key 不能覆盖另一把私钥产生的 CRX ID。原 `mdedooklbnfejodmnhmkdpkaedafkehf` 用户须安装新身份并更新配套 plugin，手动迁移选项页配置，不承诺 storage 跨 ID 保留。后台继续严格校验 Origin 和 hello 身份，不能放宽校验来接纳错误签名。CRX 安装、升级及登记须在实际雪诺 profile 独立验收，不能由静态签名验证推定成功。
 
 Broker 为所选实例持有唯一 Playwright 连接，多会话共享该连接。底层代理单个 CDP 前端的限制仍然成立；插件通过内部调度和 tab 归属提供多会话，不能由此推断独立代理支持多个 Playwright 客户端。IPC 和 CDP 前端保留身份校验；扩展登记及启动关联同样必须落在预期本机信任边界，不能用浏览器 UA 或端口监听代替 profile 身份。
 

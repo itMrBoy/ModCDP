@@ -39,7 +39,7 @@ jobs:
         with:
           node-version: 22
       - name: Verify release tooling without publishing
-        run: node --test tooling/plugin/test/release-notes.test.mjs tooling/plugin/test/release-extension.test.mjs
+        run: node --test tooling/plugin/test/crx3.test.mjs tooling/plugin/test/sign-extension-release.test.mjs tooling/plugin/test/release-notes.test.mjs tooling/plugin/test/release-extension.test.mjs
       - name: Resolve the pinned distribution
         id: gitlink
         run: node tooling/js/scripts/release-extension.mjs gitlink --tooling tooling
@@ -105,7 +105,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  publish:
+  sign:
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -120,6 +120,33 @@ jobs:
       - uses: actions/download-artifact@v8.0.2
         with:
           name: cdphelper-extension-${{ needs.prepare.outputs.version }}
+          path: release-bundle
+      - name: Sign the verified extension with the permanent identity
+        env:
+          CDPHELPER_EXTENSION_SIGNING_KEY: ${{ secrets.CDPHELPER_EXTENSION_SIGNING_KEY }}
+        run: node js/scripts/sign-extension-release.mjs --bundle release-bundle
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: cdphelper-signed-${{ needs.prepare.outputs.version }}
+          path: release-bundle/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [prepare, sign]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: cdphelper-signed-${{ needs.prepare.outputs.version }}
           path: release-bundle
       - name: Publish the version tag and paired extension to cdpHelper
         env:
